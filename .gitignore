@@ -1,0 +1,38 @@
+# ===== 签名密钥（绝不入库！丢失后无法升级签名）=====
+keystore/
+keystore.properties
+
+# ===== Gradle / Android 构建产物 =====
+.gradle/
+build/
+app/build/
+ppocr-sdk/build/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+.kotlin/
+
+# ===== 本地环境/工具 =====
+_build_tools/
+_device_out/
+dist/
+
+# ===== 大型本地资源（不入库）=====
+sdk/
+_ref/
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.onnx
+
+# ===== 参考/练习项目（非应用源码）=====
+HelloWorld/
+.trae/
+material-3-skill-master/
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc

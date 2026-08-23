@@ -1,0 +1,95 @@
+import java.util.Properties
+import java.io.FileInputStream
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
+}
+
+// 签名配置：从项目根 keystore.properties 读取（本地文件，不入库，见 .gitignore）。
+// 文件缺失时 release 不签名（仍可构建 debug / 未签名 release）。
+val keystoreProps = Properties().apply {
+    // 项目根 = ComposeApp 的上级目录（class/）
+    val root = rootProject.projectDir.parentFile
+    val f = File(root, "keystore.properties")
+    if (f.exists()) FileInputStream(f).use { load(it) }
+}
+val hasSigning = keystoreProps.getProperty("storeFile") != null
+
+android {
+    namespace = "com.example.composeapp"
+    compileSdk = 35
+    buildToolsVersion = "34.0.0"
+
+    defaultConfig {
+        applicationId = "com.example.composeapp"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 3
+        versionName = "1.2"
+
+        // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    if (hasSigning) {
+        signingConfigs {
+            create("release") {
+                val rootDir = rootProject.projectDir.parentFile
+                storeFile = File(rootDir, keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (hasSigning) {
+                // 正式签名（密钥来自 keystore.properties，不在仓库）
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    // Compose + Material 3（BOM 统一版本，兼容 compileSdk 34）
+    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+
+    // Room（KSP 编译期处理）
+    implementation("androidx.room:room-runtime:2.7.1")
+    implementation("androidx.room:room-ktx:2.7.1")
+    ksp("androidx.room:room-compiler:2.7.1")
+
+    // PaddleOCR SDK（PP-OCRv6 small，ONNX Runtime 推理）
+    implementation(project(":ppocr-sdk"))
+
+    // PDF 渲染：系统 PdfRenderer（本 PDF 为 STSong-Light 非嵌入字体，
+    // PDFBox 无对应字体渲染出豆腐块，故回退系统渲染器）
+    // 保留 PDFBox 依赖备查；如需 PDFBox 渲染需额外打包 CJK 字体 + FontMapper
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+}

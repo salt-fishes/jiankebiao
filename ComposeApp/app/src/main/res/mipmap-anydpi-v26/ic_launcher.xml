@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 背景层：独立 drawable 图片（不可引用 @mipmap/ic_launcher，会递归到自身） -->
+    <background android:drawable="@drawable/ic_launcher_bg" />
+    <!-- 前景层：透明占位，图标为整张图片（按设备遮罩裁剪） -->
+    <foreground android:drawable="@drawable/ic_launcher_fg" />
+</adaptive-icon>
