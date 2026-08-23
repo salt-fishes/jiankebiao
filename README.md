@@ -49,6 +49,8 @@ gradle assembleRelease  # release（需 keystore.properties 提供签名）
 - [Room](https://developer.android.com/jetpack/androidx/releases/room)：本地数据持久化
 - [Kotlin](https://kotlinlang.org/)：开发语言
 
-## �📄 许可
+## 📄 许可
 
-MIT License
+本项目采用 [MIT License](LICENSE) 开源发布，详见 [LICENSE](LICENSE) 文件。
+
+> 使用的第三方库（PaddleOCR、ONNX Runtime、OpenCV、Jetpack Compose 等）均遵循各自的开源许可。
