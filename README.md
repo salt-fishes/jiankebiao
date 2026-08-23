@@ -38,6 +38,17 @@ gradle assembleRelease  # release（需 keystore.properties 提供签名）
 
 > 签名密钥 `keystore.properties` 不随仓库提供（见 `.gitignore`）。没有它时 release 仍可构建为未签名 APK。**请自行生成并妥善保管签名密钥**，密钥丢失将无法升级应用。
 
-## 📄 许可
+## � 致谢
+
+本应用基于以下开源项目构建，衷心感谢这些项目的开发与维护者：
+
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)（PP-OCRv6 tiny 本地模型）：课表文字识别
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime)：OCR 模型本地推理
+- [OpenCV](https://github.com/opencv/opencv)（4.5.3）：图像预处理与文档矫正
+- [Jetpack Compose](https://developer.android.com/jetpack/compose) · [Material 3](https://m3.material.io/)：界面构建与设计系统
+- [Room](https://developer.android.com/jetpack/androidx/releases/room)：本地数据持久化
+- [Kotlin](https://kotlinlang.org/)：开发语言
+
+## �📄 许可
 
 MIT License

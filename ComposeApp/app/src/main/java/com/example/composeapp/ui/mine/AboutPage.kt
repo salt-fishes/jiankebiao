@@ -117,6 +117,24 @@ fun AboutPage(
             }
 
             Spacer(Modifier.height(24.dp))
+            SectionTitle("致谢")
+            Card(colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            )) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(
+                        "• PaddleOCR（PP-OCRv6 tiny）：课表文字识别\n" +
+                            "• ONNX Runtime：OCR 模型本地推理\n" +
+                            "• OpenCV：图像预处理\n" +
+                            "• Jetpack Compose · Material 3：界面与设计\n" +
+                            "• Room：本地数据持久化\n" +
+                            "• Kotlin：开发语言",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
             SectionTitle("开发者")
             InfoRow("开发者", "咸鱼")
             InfoRow("联系邮箱", "xunguang255@163.com")
