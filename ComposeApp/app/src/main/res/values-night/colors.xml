@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 小组件配色（暗色） -->
+    <color name="widget_bg">#201F23</color>
+    <color name="widget_text_primary">#E5E1E6</color>
+    <color name="widget_text_secondary">#A9A7B2</color>
+    <color name="widget_accent">#C1C1FF</color>
+    <color name="widget_divider">#26FFFFFF</color>
+</resources>

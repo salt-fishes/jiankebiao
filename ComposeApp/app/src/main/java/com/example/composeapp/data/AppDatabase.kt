@@ -6,13 +6,12 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ItemEntity::class, CourseEntity::class, ScheduleEntryEntity::class],
-    version = 2,
+    entities = [CourseEntity::class, ScheduleEntryEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
-    abstract fun itemDao(): ItemDao
     abstract fun scheduleDao(): ScheduleDao
 
     companion object {

@@ -4,11 +4,14 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import com.example.composeapp.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 边到边绘制：背景图延伸至状态栏/导航条下方，内容用 insets 避让
+        enableEdgeToEdge()
         // 解析耗时较长，保持屏幕常亮避免息屏导致前台退出
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Android 13+ 前台服务通知需运行时权限

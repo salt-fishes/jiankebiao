@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">简课表</string>
+    <string name="widget_default_title">今日课程</string>
+    <string name="widget_no_class">今日无课</string>
+    <string name="widget_description">今日课程一览</string>
 </resources>

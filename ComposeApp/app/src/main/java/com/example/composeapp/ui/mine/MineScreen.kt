@@ -1,6 +1,13 @@
 package com.example.composeapp.ui.mine
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -24,6 +32,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,12 +51,14 @@ import com.example.composeapp.data.WeekCalculator
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 /** 我的页：学期设置 / 显示开关 / 导入 / 数据。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MineScreen(
     settings: ScheduleSettings,
+    glass: Boolean = false,
     courseCount: Int,
     entryCount: Int,
     parsing: Boolean,
@@ -60,6 +71,13 @@ fun MineScreen(
     onSetDynamicColor: (Boolean) -> Unit,
     onSetDarkMode: (String) -> Unit,
     onOpenSectionTimes: () -> Unit,
+    onSetRemindEnabled: (Boolean) -> Unit,
+    onSetRemindMinutes: (Int) -> Unit,
+    onSendTestReminder: () -> Unit,
+    onSetCustomBgEnabled: (Boolean) -> Unit,
+    onPickBackground: () -> Unit,
+    onClearBackground: () -> Unit,
+    onSetCustomBgBlur: (Int) -> Unit,
     onClearData: () -> Unit,
     onShowSnackbar: (String) -> Unit,
     onOpenAbout: () -> Unit,
@@ -82,9 +100,7 @@ fun MineScreen(
         Text("我的", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
 
         // ---- 学期信息卡 ----
-        Card(colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )) {
+        GlassCard(glass) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 val week = WeekCalculator.currentWeek(settings.semesterStartDate, today)
                 Text(
@@ -169,10 +185,71 @@ fun MineScreen(
             )
         }
 
+        SectionHeader("实验性")
+        SwitchRow("自定义背景（磨砂玻璃）", settings.customBgEnabled, onSetCustomBgEnabled)
+        AnimatedVisibility(
+            visible = settings.customBgEnabled,
+            enter = expandVertically(tween(240)) + fadeIn(tween(240)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(200)),
+        ) {
+            Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPickBackground() }
+                    .padding(vertical = 6.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("选择背景图片", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (settings.customBgPath.isBlank()) "未设置 · 开启后首页/今日页为磨砂玻璃风格"
+                        else "已设置 · 首页/今日页/底栏磨砂玻璃风格",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    "选择",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (settings.customBgPath.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "背景模糊",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.width(72.dp),
+                    )
+                    Slider(
+                        value = settings.customBgBlurDp.toFloat(),
+                        onValueChange = { onSetCustomBgBlur(((it / 4f).roundToInt() * 4)) },
+                        valueRange = 0f..28f,
+                        steps = 6,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${settings.customBgBlurDp}dp",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(44.dp),
+                    )
+                }
+                TextButton(onClick = onClearBackground) {
+                    Text("清除背景图片", color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Text(
+                "实验性功能：磨砂玻璃风格覆盖首页、今日页与底栏，界面细节可能随后续版本调整",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            }
+        }
+
         SectionHeader("作息时间")
-        Card(colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )) {
+        GlassCard(glass) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -198,6 +275,44 @@ fun MineScreen(
             }
         }
 
+        SectionHeader("提醒")
+        SwitchRow("上课前提醒", settings.remindEnabled, onSetRemindEnabled)
+        if (settings.remindEnabled) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 2.dp),
+            ) {
+                Text(
+                    "提前",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(10.dp))
+                listOf(5, 10, 15, 20).forEach { m ->
+                    FilterChip(
+                        selected = settings.remindMinutesBefore == m,
+                        onClick = { onSetRemindMinutes(m) },
+                        label = { Text("$m 分钟") },
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "提醒在手机本地触发，重启后自动恢复",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onSendTestReminder) {
+                    Text("发送测试通知")
+                }
+            }
+        }
+
         SectionHeader("课表数据")
         Button(onClick = onPickPdf, enabled = !parsing, modifier = Modifier.fillMaxWidth()) {
             Text(if (parsing) "解析中…" else "导入课表 PDF")
@@ -220,9 +335,7 @@ fun MineScreen(
         }
 
         SectionHeader("关于")
-        Card(colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )) {
+        GlassCard(glass) {
             Column(Modifier.fillMaxWidth()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -232,7 +345,7 @@ fun MineScreen(
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Text("关于简课表", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Text("版本 1.2", style = MaterialTheme.typography.labelSmall,
+                    Text("版本 1.3", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -331,6 +444,25 @@ fun MineScreen(
     }
 
     // ---- 作息时间编辑已移至独立页面 SectionTimePage ----
+}
+
+/** 玻璃开关卡片容器：glass 开启时为磨砂玻璃面，否则为普通实色 Card。 */
+@Composable
+private fun GlassCard(
+    glass: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (glass) {
+        com.example.composeapp.ui.theme.GlassSurface(modifier = modifier) { content() }
+    } else {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            ),
+            modifier = modifier,
+        ) { content() }
+    }
 }
 
 private fun fmt(h: Int, m: Int): String = "%02d:%02d".format(h, m)

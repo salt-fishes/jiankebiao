@@ -19,6 +19,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +43,7 @@ private val DAY_NAMES = listOf("星期一", "星期二", "星期三", "星期四
 fun TodayScreen(
     entries: List<EntryWithCourse>,
     settings: ScheduleSettings,
+    glass: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val today = remember { LocalDate.now() }
@@ -87,11 +89,11 @@ fun TodayScreen(
             }
             else -> {
                 ongoing?.let { e ->
-                    item { OngoingCard(e, settings, nowMinutes) }
+                    item { OngoingCard(e, settings, nowMinutes, glass) }
                 }
                 next?.let { e ->
                     if (ongoing == null || ongoing.entryId != next.entryId) {
-                        item { NextCard(e, settings, nowMinutes) }
+                        item { NextCard(e, settings, nowMinutes, glass) }
                     }
                 }
                 item {
@@ -101,8 +103,21 @@ fun TodayScreen(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-                items(todayEntries, key = { it.entryId }) { e ->
-                    TimelineItem(e, settings, nowMinutes)
+                if (glass) {
+                    // 玻璃模式：整段时间轴收进单层玻璃面，避免玻璃上叠玻璃
+                    item {
+                        com.example.composeapp.ui.theme.GlassSurface(Modifier.fillMaxWidth()) {
+                            Column {
+                                todayEntries.forEach { e ->
+                                    TimelineItem(e, settings, nowMinutes, transparent = true)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(todayEntries, key = { it.entryId }) { e ->
+                        TimelineItem(e, settings, nowMinutes)
+                    }
                 }
             }
         }
@@ -118,12 +133,14 @@ private fun colorFor(entry: EntryWithCourse): androidx.compose.ui.graphics.Color
     }
 
 @Composable
-private fun OngoingCard(e: EntryWithCourse, settings: ScheduleSettings, nowMinutes: Int) {
+private fun OngoingCard(
+    e: EntryWithCourse,
+    settings: ScheduleSettings,
+    nowMinutes: Int,
+    glass: Boolean,
+) {
     val cs = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(containerColor = cs.primaryContainer),
-        shape = MaterialTheme.shapes.large,
-    ) {
+    val body: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -131,7 +148,7 @@ private fun OngoingCard(e: EntryWithCourse, settings: ScheduleSettings, nowMinut
                 )
                 Spacer(Modifier.size(8.dp))
                 Text("正在上课", style = MaterialTheme.typography.labelLarge,
-                    color = cs.onPrimaryContainer)
+                    color = if (glass) cs.primary else cs.onPrimaryContainer)
             }
             Text(
                 e.courseName,
@@ -145,7 +162,7 @@ private fun OngoingCard(e: EntryWithCourse, settings: ScheduleSettings, nowMinut
                     if (e.teacher.isNotBlank()) append(" · ").append(e.teacher)
                 },
                 style = MaterialTheme.typography.bodyMedium,
-                color = cs.onPrimaryContainer.copy(alpha = 0.75f),
+                color = if (glass) cs.onSurfaceVariant else cs.onPrimaryContainer.copy(alpha = 0.75f),
             )
             val span = TimeUtils.sectionMinutes(settings.sectionTimes, e.startSection ?: 1)
             if (span != null) {
@@ -160,22 +177,32 @@ private fun OngoingCard(e: EntryWithCourse, settings: ScheduleSettings, nowMinut
                 Text(
                     "还剩 ${span.second - nowMinutes} 分钟 · ${TimeUtils.hm(LocalTime.of(span.second / 60, span.second % 60))} 下课",
                     style = MaterialTheme.typography.labelSmall,
-                    color = cs.onPrimaryContainer.copy(alpha = 0.7f),
+                    color = if (glass) cs.onSurfaceVariant else cs.onPrimaryContainer.copy(alpha = 0.7f),
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
     }
+    if (glass) {
+        com.example.composeapp.ui.theme.GlassSurface(Modifier.fillMaxWidth()) { body() }
+    } else {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = cs.primaryContainer),
+            shape = MaterialTheme.shapes.large,
+        ) { body() }
+    }
 }
 
 @Composable
-private fun NextCard(e: EntryWithCourse, settings: ScheduleSettings, nowMinutes: Int) {
+private fun NextCard(
+    e: EntryWithCourse,
+    settings: ScheduleSettings,
+    nowMinutes: Int,
+    glass: Boolean,
+) {
     val cs = MaterialTheme.colorScheme
     val sM = TimeUtils.sectionMinutes(settings.sectionTimes, e.startSection ?: 1)?.first ?: 0
-    Card(
-        colors = CardDefaults.cardColors(containerColor = cs.surfaceContainerLow),
-        shape = MaterialTheme.shapes.large,
-    ) {
+    val body: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).background(colorFor(e), CircleShape))
@@ -201,15 +228,31 @@ private fun NextCard(e: EntryWithCourse, settings: ScheduleSettings, nowMinutes:
             )
         }
     }
+    if (glass) {
+        com.example.composeapp.ui.theme.GlassSurface(Modifier.fillMaxWidth()) { body() }
+    } else {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = cs.surfaceContainerLow),
+            shape = MaterialTheme.shapes.large,
+        ) { body() }
+    }
 }
 
 @Composable
-private fun TimelineItem(e: EntryWithCourse, settings: ScheduleSettings, nowMinutes: Int) {
+private fun TimelineItem(
+    e: EntryWithCourse,
+    settings: ScheduleSettings,
+    nowMinutes: Int,
+    transparent: Boolean = false,
+) {
     val cs = MaterialTheme.colorScheme
     val span = TimeUtils.sectionMinutes(settings.sectionTimes, e.startSection ?: 1)
     val endMinutes = span?.second ?: 0
     val finished = span != null && nowMinutes > endMinutes
     ListItem(
+        colors = if (transparent) ListItemDefaults.colors(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent
+        ) else ListItemDefaults.colors(),
         leadingContent = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 span?.let {

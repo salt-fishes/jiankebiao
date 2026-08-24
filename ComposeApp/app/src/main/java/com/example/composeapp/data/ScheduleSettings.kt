@@ -27,6 +27,11 @@ data class ScheduleSettings(
     val dynamicColor: Boolean,        // 动态取色（API 31+，默认关）
     val darkMode: String,             // system / light / dark
     val sectionTimes: List<SectionTime>,
+    val remindEnabled: Boolean,       // 上课前提醒（默认关）
+    val remindMinutesBefore: Int,     // 提前提醒分钟数（5/10/15/20）
+    val customBgEnabled: Boolean,     // 实验性：自定义背景图（磨砂玻璃风格）
+    val customBgPath: String,         // 背景图文件路径（应用私有目录，空 = 未设置）
+    val customBgBlurDp: Int,          // 背景模糊强度（dp，0..28）
 ) {
     val semesterStartDate: LocalDate?
         get() = if (semesterStart == 0L) null
@@ -77,6 +82,29 @@ class SettingsRepository private constructor(context: Context) {
 
     fun setDarkMode(mode: String) = prefs.edit().putString(KEY_DARK_MODE, mode).apply()
 
+    /** 上课前提醒开关。 */
+    fun setRemindEnabled(value: Boolean) =
+        prefs.edit().putBoolean(KEY_REMIND_ENABLED, value).apply()
+
+    /** 课前提醒提前分钟数（限定可选档位）。 */
+    fun setRemindMinutesBefore(minutes: Int) {
+        val allowed = setOf(5, 10, 15, 20)
+        val v = if (minutes in allowed) minutes else REMIND_MINUTES_DEFAULT
+        prefs.edit().putInt(KEY_REMIND_MINUTES, v).apply()
+    }
+
+    /** 实验性：自定义背景开关。 */
+    fun setCustomBgEnabled(value: Boolean) =
+        prefs.edit().putBoolean(KEY_CUSTOM_BG_ENABLED, value).apply()
+
+    /** 实验性：背景图路径（应用私有文件；置空即清除）。 */
+    fun setCustomBgPath(path: String) =
+        prefs.edit().putString(KEY_CUSTOM_BG_PATH, path).apply()
+
+    /** 实验性：背景模糊强度（0..28dp）。 */
+    fun setCustomBgBlur(dp: Int) =
+        prefs.edit().putInt(KEY_CUSTOM_BG_BLUR, dp.coerceIn(0, 28)).apply()
+
     /** 调整一日节数：作息表随之截取/补全默认时间。 */
     fun setSectionsPerDay(n: Int) {
         val count = n.coerceIn(4, 16)
@@ -108,6 +136,12 @@ class SettingsRepository private constructor(context: Context) {
             dynamicColor = prefs.getBoolean(KEY_DYNAMIC_COLOR, false),
             darkMode = prefs.getString(KEY_DARK_MODE, "system") ?: "system",
             sectionTimes = times,
+            remindEnabled = prefs.getBoolean(KEY_REMIND_ENABLED, false),
+            remindMinutesBefore = prefs.getInt(KEY_REMIND_MINUTES, REMIND_MINUTES_DEFAULT)
+                .let { if (it in setOf(5, 10, 15, 20)) it else REMIND_MINUTES_DEFAULT },
+            customBgEnabled = prefs.getBoolean(KEY_CUSTOM_BG_ENABLED, false),
+            customBgPath = prefs.getString(KEY_CUSTOM_BG_PATH, "") ?: "",
+            customBgBlurDp = prefs.getInt(KEY_CUSTOM_BG_BLUR, CUSTOM_BG_BLUR_DEFAULT),
         )
     }
 
@@ -120,6 +154,17 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DARK_MODE = "dark_mode"
         private const val KEY_SECTION_TIMES = "section_times"
+        private const val KEY_REMIND_ENABLED = "remind_enabled"
+        private const val KEY_REMIND_MINUTES = "remind_minutes_before"
+        private const val KEY_CUSTOM_BG_ENABLED = "custom_bg_enabled"
+        private const val KEY_CUSTOM_BG_PATH = "custom_bg_path"
+        private const val KEY_CUSTOM_BG_BLUR = "custom_bg_blur_dp"
+
+        /** 课前提醒默认提前分钟数。 */
+        const val REMIND_MINUTES_DEFAULT = 10
+
+        /** 自定义背景默认模糊强度（dp）。 */
+        const val CUSTOM_BG_BLUR_DEFAULT = 20
 
         /** 默认开学日：2026-08-31（周一），可在设置中修改。 */
         val DEFAULT_SEMESTER_START_LOCAL: LocalDate = LocalDate.of(2026, 8, 31)

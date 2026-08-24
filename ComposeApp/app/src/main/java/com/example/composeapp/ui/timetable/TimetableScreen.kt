@@ -50,7 +50,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -89,6 +91,7 @@ fun TimetableScreen(
     entries: List<EntryWithCourse>,
     settings: ScheduleSettings,
     parsing: Boolean = false,
+    glass: Boolean = false,
     onCourseClick: (EntryWithCourse) -> Unit,
     onShowSnackbar: (String) -> Unit,
     onImportClick: () -> Unit = {},
@@ -214,52 +217,66 @@ fun TimetableScreen(
             )
         }
 
-        // ---- 标题栏：第 N 周大字 + 日期范围小字（两行排版） ----
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showWeekPicker = true }
-                .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text(
-                    "第 $selectedWeek 周",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = if (rawCurrentWeek < 1) {
-                        val days = semesterStart?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
-                        "未开学" + (days?.takeIf { it > 0 }?.let { " · $it 天后开学" } ?: "")
-                    } else {
-                        weekDateRangeLabel(settings.semesterStartDate, selectedWeek)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (rawCurrentWeek < 1) MaterialTheme.colorScheme.tertiary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 1.dp),
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onAddClick) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = "新增课程",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = {
-                scope.launch { pagerState.animateScrollToPage(currentWeek - 1) }
-            }) {
-                Icon(
-                    Icons.Filled.DateRange,
-                    contentDescription = "回到本周",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        // ---- 标题栏：第 N 周大字 + 日期范围小字（玻璃模式包一层玻璃舱） ----
+        val headerContent: @Composable () -> Unit = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showWeekPicker = true }
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        "第 $selectedWeek 周",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = if (rawCurrentWeek < 1) {
+                            val days = semesterStart?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
+                            "未开学" + (days?.takeIf { it > 0 }?.let { " · $it 天后开学" } ?: "")
+                        } else {
+                            weekDateRangeLabel(settings.semesterStartDate, selectedWeek)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (rawCurrentWeek < 1) MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 1.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onAddClick) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = "新增课程",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = {
+                    scope.launch { pagerState.animateScrollToPage(currentWeek - 1) }
+                }) {
+                    Icon(
+                        Icons.Filled.DateRange,
+                        contentDescription = "回到本周",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        if (glass) {
+            com.example.composeapp.ui.theme.GlassSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) { headerContent() }
+        } else {
+            headerContent()
+        }
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant
+                .copy(alpha = if (glass) 0.35f else 1f)
+        )
 
         // ---- 星期表头（轴角落显示展示周的月份，随滑动切换） ----
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -314,6 +331,7 @@ fun TimetableScreen(
                     sectionTimes = settings.sectionTimes,
                     showNonCurrentWeek = settings.showNonCurrentWeek,
                     dynamicColor = dynamicColor,
+                    glass = glass,
                     onCourseClick = onCourseClick,
                 )
             }
@@ -439,6 +457,7 @@ private fun WeekGridPage(
     sectionTimes: List<SectionTime>,
     showNonCurrentWeek: Boolean,
     dynamicColor: Boolean,
+    glass: Boolean,
     onCourseClick: (EntryWithCourse) -> Unit,
 ) {
     Row(Modifier.fillMaxSize()) {
@@ -452,6 +471,7 @@ private fun WeekGridPage(
                 sectionTimes = sectionTimes,
                 showNonCurrentWeek = showNonCurrentWeek,
                 dynamicColor = dynamicColor,
+                glass = glass,
                 onCourseClick = onCourseClick,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
             )
@@ -468,6 +488,7 @@ private fun DayColumn(
     sectionTimes: List<SectionTime>,
     showNonCurrentWeek: Boolean,
     dynamicColor: Boolean,
+    glass: Boolean,
     onCourseClick: (EntryWithCourse) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -505,10 +526,12 @@ private fun DayColumn(
                     entry = entry,
                     dimmed = !entry.isInWeek(week),
                     dynamicColor = dynamicColor,
+                    glass = glass,
+                    // 四周留距：块与块/网格线之间保留 2dp 间隙
                     modifier = Modifier
-                        .offset(x = cellW * slot, y = blockTop(entry))
+                        .offset(x = cellW * slot + 2.dp, y = blockTop(entry) + 3.dp)
                         .width(cellW - 4.dp)
-                        .height(blockHeight(entry)),
+                        .height(blockHeight(entry) - 6.dp),
                     onClick = { onCourseClick(entry) },
                 )
             }
@@ -557,6 +580,7 @@ private fun CourseBlock(
     entry: EntryWithCourse,
     dimmed: Boolean,
     dynamicColor: Boolean,
+    glass: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -568,18 +592,95 @@ private fun CourseBlock(
         courseBlockColors(entry.colorIndex, isDark)
     }
     // 课程名按块宽自适应：保证每行约显示三个字（参考主流课表排版）
+    // 按压缩放动效（MD3：0.97，弹簧回弹）
+    var pressed by remember(entry.entryId) { mutableStateOf(false) }
+    val pressScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+        ),
+        label = "blockPress",
+    )
+    val pressModifier = Modifier.graphicsLayer {
+        scaleX = pressScale
+        scaleY = pressScale
+    }
+    val gestureModifier = Modifier.pointerInput(entry.entryId) {
+        detectTapGestures(
+            onPress = {
+                pressed = true
+                try { awaitRelease() } finally { pressed = false }
+            },
+            onTap = { onClick() },
+        )
+    }
+    if (glass) {
+        // 磨砂玻璃模式：块体为玻璃面，顶部 4dp 课程色条做区分，文字用主题色保证可读；
+        // 字号随块宽自适应（一行约 3 字，与实色模式一致）
+        val cs = MaterialTheme.colorScheme
+        BoxWithConstraints(
+            modifier = modifier
+                .alpha(if (dimmed) 0.38f else 1f)
+                .then(pressModifier)
+        ) {
+            // 一行约 3 字：按去掉内边距后的可用宽度计算（CJK 全角 ≈ 字号）
+            val nameSize = (((maxWidth.value - 8f) / 3f).coerceIn(8f, 14f))
+            com.example.composeapp.ui.theme.GlassSurface(
+                modifier = Modifier.fillMaxSize(),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .then(gestureModifier)
+                        .padding(horizontal = 3.dp, vertical = 4.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                            .background(container)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = entry.courseName + typeSymbol(entry.type),
+                        fontSize = nameSize.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = cs.onSurface,
+                        lineHeight = (nameSize * 1.22f).sp,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 6,
+                    )
+                    val location = condensedLocation(entry)
+                    if (location.isNotBlank() || entry.teacher.isNotBlank()) {
+                        Text(
+                            text = buildString {
+                                if (entry.teacher.isNotBlank()) append(entry.teacher)
+                                if (location.isNotBlank()) append("@").append(location)
+                            },
+                            fontSize = (nameSize * 0.82f).sp,
+                            color = cs.onSurfaceVariant,
+                            lineHeight = (nameSize * 0.98f).sp,
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
     BoxWithConstraints(
         modifier = modifier
             .padding(horizontal = 2.dp)
             .alpha(if (dimmed) 0.38f else 1f)
+            .then(pressModifier)
             .background(container, MaterialTheme.shapes.small)
             .clipToBounds()
-            .pointerInput(entry.entryId) {
-                detectTapGestures(onTap = { onClick() })
-            }
-            .padding(horizontal = 5.dp, vertical = 4.dp)
+            .then(gestureModifier)
+            .padding(horizontal = 3.dp, vertical = 4.dp)
     ) {
-        val nameSize = ((maxWidth.value / 3f).coerceIn(10f, 16f))
+        // 一行约 3 字：按去掉内边距后的可用宽度计算（CJK 全角 ≈ 字号）
+        val nameSize = (((maxWidth.value - 8f) / 3f).coerceIn(8f, 14f))
         Column {
             // 课程名 + 类型标记（如 模拟电子线路★）
             Text(

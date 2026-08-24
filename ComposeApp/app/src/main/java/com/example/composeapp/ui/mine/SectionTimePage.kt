@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -44,11 +46,12 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.composeapp.data.ScheduleSettings
 import com.example.composeapp.data.SectionTime
 
-/** 作息时间页：一日节数调整 + 各节起止时间编辑（独立全屏页面）。 */
+/** 作息时间页：一日节数调整 + 各节起止时间编辑（独立全屏页面；玻璃模式透出背景）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SectionTimePage(
     settings: ScheduleSettings,
+    glass: Boolean = false,
     onSetSectionTimes: (List<SectionTime>) -> Unit,
     onSetSectionsPerDay: (Int) -> Unit,
     onBack: () -> Unit,
@@ -59,12 +62,19 @@ fun SectionTimePage(
 
     BackHandler { onBack() }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    Surface(
+        Modifier.fillMaxSize(),
+        color = if (glass) androidx.compose.ui.graphics.Color.Transparent
+        else MaterialTheme.colorScheme.surface,
+    ) {
         Column {
-            // ---- 顶栏：返回 + 标题 ----
+            // ---- 顶栏：返回 + 标题（避让状态栏） ----
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(top = 8.dp),
             ) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -75,6 +85,7 @@ fun SectionTimePage(
             Column(
                 Modifier
                     .fillMaxSize()
+                    .navigationBarsPadding()
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -86,9 +97,7 @@ fun SectionTimePage(
                 )
 
                 // ---- 一日节数步进器（4..16） ----
-                Card(colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )) {
+                GlassCard(glass) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -119,9 +128,7 @@ fun SectionTimePage(
                 }
 
                 // ---- 各节起止时间 ----
-                Card(colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                )) {
+                GlassCard(glass) {
                     LazyColumn(Modifier.fillMaxWidth().height((settings.sectionTimes.size * 44).dp)) {
                         itemsIndexed(settings.sectionTimes) { i, st ->
                             if (i > 0) HorizontalDivider(
@@ -211,3 +218,22 @@ fun SectionTimePage(
 }
 
 private fun fmt(h: Int, m: Int): String = "%02d:%02d".format(h, m)
+
+/** 玻璃开关卡片容器：glass 开启时为磨砂玻璃面，否则为普通实色 Card。 */
+@Composable
+private fun GlassCard(
+    glass: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (glass) {
+        com.example.composeapp.ui.theme.GlassSurface(modifier = modifier) { content() }
+    } else {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            ),
+            modifier = modifier,
+        ) { content() }
+    }
+}
