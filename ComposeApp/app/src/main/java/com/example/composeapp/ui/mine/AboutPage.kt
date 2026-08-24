@@ -164,6 +164,18 @@ fun AboutPage(
             }
 
             Spacer(Modifier.height(24.dp))
+            SectionTitle("兼容性")
+            GlassCard(glass, Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(
+                        "目前只适配方正教务导出的课表 PDF。\n" +
+                            "其他教务系统如有适配需求，欢迎发邮件至 xunguang255@163.com。",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
             SectionTitle("开发者")
             InfoRow("开发者", "咸鱼")
             InfoRow("联系邮箱", "xunguang255@163.com")

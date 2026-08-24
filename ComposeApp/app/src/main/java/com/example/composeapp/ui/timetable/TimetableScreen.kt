@@ -198,6 +198,13 @@ fun TimetableScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Spacer(Modifier.height(18.dp))
+                        Text(
+                            "目前只适配方正教务导出的课表 PDF\n有适配需求请发邮件至 xunguang255@163.com",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
                     }
                 }
             }
