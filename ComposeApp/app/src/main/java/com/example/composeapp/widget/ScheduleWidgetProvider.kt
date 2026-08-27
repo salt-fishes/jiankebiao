@@ -75,17 +75,17 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        /** 加载今日课程行；返回 (当前周, 行列表)。 */
+        /** 加载今日课程行；返回 (周数标签, 行列表)。 */
         internal suspend fun loadRows(context: Context): Pair<String, List<WidgetRow>> {
             val settings = SettingsRepository.getInstance(context).current
             val today = LocalDate.now()
+            val rawWeek = WeekCalculator.currentWeek(settings.semesterStartDate, today)
+            // 开学前（周数 <= 0）不展示任何课程，避免提前泄露开学后的安排
+            if (rawWeek < 1) return "未开学" to emptyList()
             // 遵循「显示周末」开关：隐藏周末则周六/日不展示课程
-            if (!settings.showWeekend && today.dayOfWeek.value >= 6) return "0" to emptyList()
-            // 开学前 currentWeek <= 0，与课表页一致钳到第 1 周（否则开学前小组件永远为空）
-            val week = WeekCalculator.currentWeek(settings.semesterStartDate, today)
-                .coerceAtLeast(1)
+            if (!settings.showWeekend && today.dayOfWeek.value >= 6) return "第 $rawWeek 周" to emptyList()
             val entries = AppDatabase.getInstance(context).scheduleDao().observeAllEntries().first()
-                .filter { it.dayOfWeek == today.dayOfWeek.value && week >= 1 && it.isInWeek(week) }
+                .filter { it.dayOfWeek == today.dayOfWeek.value && it.isInWeek(rawWeek) }
                 .sortedBy { it.startSection ?: 99 }
             val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
             val rows = entries.map { e ->
@@ -99,7 +99,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     past = span != null && nowMinutes > span.second,
                 )
             }
-            return "$week" to rows
+            return "第 $rawWeek 周" to rows
         }
 
         internal fun typeSymbol(type: String): String = when (type) {
@@ -132,7 +132,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
             views.setTextViewText(
                 R.id.widget_subtitle,
-                "${today.monthValue}月${today.dayOfMonth}日 ${dayNames[today.dayOfWeek.value - 1]} · 第 $week 周",
+                "${today.monthValue}月${today.dayOfMonth}日 ${dayNames[today.dayOfWeek.value - 1]} · $week",
             )
             views.setTextViewText(R.id.widget_count, if (rows.isNotEmpty()) "${rows.size} 节" else "")
 

@@ -74,9 +74,8 @@ object ClassReminderScheduler {
         var date: LocalDate = from.toLocalDate()
         repeat(HORIZON_DAYS) {
             // 遵循「显示周末」开关：隐藏周末则周末课程不提醒；
-            // 开学前钳到第 1 周（与课表页一致，否则开学前永远无提醒）
+            // 开学前（周数 <= 0）不匹配任何课程，开学当天自然从第 1 周开始
             val week = WeekCalculator.currentWeek(settings.semesterStartDate, date)
-                .coerceAtLeast(1)
             val weekendHidden = date.dayOfWeek.value >= 6 && !settings.showWeekend
             if (week >= 1 && !weekendHidden) {
                 for (e in entries) {
@@ -128,8 +127,8 @@ object ClassReminderScheduler {
         var best: UpcomingClass? = null
         var date: LocalDate = now.toLocalDate()
         repeat(HORIZON_DAYS) {
+            // 开学前（周数 <= 0）不排任何提醒，与小组件行为一致
             val week = WeekCalculator.currentWeek(settings.semesterStartDate, date)
-                .coerceAtLeast(1)
             val weekendHidden = date.dayOfWeek.value >= 6 && !settings.showWeekend
             if (week >= 1 && !weekendHidden) {
                 for (e in entries) {

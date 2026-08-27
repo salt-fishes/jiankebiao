@@ -102,11 +102,25 @@ fun MineScreen(
         // ---- 学期信息卡 ----
         GlassCard(glass) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                val week = WeekCalculator.currentWeek(settings.semesterStartDate, today)
-                Text(
-                    "第 $week 周",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
+                val rawWeek = WeekCalculator.currentWeek(settings.semesterStartDate, today)
+                if (rawWeek < 1) {
+                    // 边界处理：开学前显示倒计时
+                    val daysToStart =
+                        settings.semesterStartDate?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
+                    Text(
+                        text = when {
+                            settings.semesterStartDate == null -> "未设置开学时间"
+                            daysToStart != null && daysToStart > 0 -> "距开学还有 $daysToStart 天"
+                            else -> "今天开学"
+                        },
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                } else {
+                    Text(
+                        "第 $rawWeek 周",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                }
                 settings.semesterStartDate?.let { date ->
                     // 开学日期 + 行内"修改"入口（点击弹日期选择）
                     Row(

@@ -168,7 +168,7 @@ fun AboutPage(
             GlassCard(glass, Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Text(
-                        "目前只适配方正教务导出的课表 PDF。\n" +
+                        "目前只适配正方教务导出的课表 PDF。\n" +
                             "其他教务系统如有适配需求，欢迎发邮件至 xunguang255@163.com。",
                         style = MaterialTheme.typography.bodyMedium,
                     )

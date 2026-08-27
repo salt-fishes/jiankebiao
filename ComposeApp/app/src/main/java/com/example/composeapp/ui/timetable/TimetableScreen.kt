@@ -200,7 +200,7 @@ fun TimetableScreen(
                         )
                         Spacer(Modifier.height(18.dp))
                         Text(
-                            "目前只适配方正教务导出的课表 PDF\n有适配需求请发邮件至 xunguang255@163.com",
+                            "目前只适配正方教务导出的课表 PDF\n有适配需求请发邮件至 xunguang255@163.com",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -234,23 +234,42 @@ fun TimetableScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text(
-                        "第 $selectedWeek 周",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = if (rawCurrentWeek < 1) {
-                            val days = semesterStart?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
-                            "未开学" + (days?.takeIf { it > 0 }?.let { " · $it 天后开学" } ?: "")
-                        } else {
-                            weekDateRangeLabel(settings.semesterStartDate, selectedWeek)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (rawCurrentWeek < 1) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 1.dp),
-                    )
+                    if (rawCurrentWeek < 1) {
+                        // 边界处理：周数为 0/负（未开学或未设置开学时间）时改显开学倒计时
+                        val daysToStart =
+                            semesterStart?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
+                        Text(
+                            text = when {
+                                semesterStart == null -> "未设置开学时间"
+                                daysToStart != null && daysToStart > 0 -> "距开学还有 $daysToStart 天"
+                                else -> "今天开学"
+                            },
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = if (semesterStart == null) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.primary,
+                        )
+                        semesterStart?.let {
+                            Text(
+                                "开学日：${it.year}年${it.monthValue}月${it.dayOfMonth}日",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 1.dp),
+                            )
+                        }
+                    } else {
+                        Text(
+                            "第 $selectedWeek 周",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = weekDateRangeLabel(settings.semesterStartDate, selectedWeek),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 1.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onAddClick) {
