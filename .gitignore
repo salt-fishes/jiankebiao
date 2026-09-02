@@ -29,6 +29,8 @@ _ref/
 *.onnx
 # OCR 模型例外：经 Git LFS 入库（CI 构建需要）
 !ComposeApp/ppocr-sdk/src/main/assets/models/**/*.onnx
+# 应用图标/资源图片例外：经 Git LFS 入库（CI 构建需要）
+!ComposeApp/app/src/main/res/**/*.png
 
 # 根目录的真实课表导出（含真实课程/教师信息，不入库）
 /*.xls
