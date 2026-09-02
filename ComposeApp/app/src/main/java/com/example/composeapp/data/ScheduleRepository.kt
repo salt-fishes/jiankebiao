@@ -18,14 +18,18 @@ class ScheduleRepository(private val dao: ScheduleDao) {
     suspend fun importSchedule(parsed: ParsedSchedule) {
         val byName = LinkedHashMap<String, CourseEntity>()
         val entriesByCourse = LinkedHashMap<String, MutableList<ScheduleEntryEntity>>()
+        // 颜色唯一分配：不同课程名拿到不同色板索引（色板 12 组，超出部分才回用）
+        val usedColors = mutableSetOf<Int>()
         for (c in parsed.courses) {
+            val colorIndex = freeColorIndex(colorIndexFor(c.name), usedColors)
+            usedColors.add(colorIndex)
             byName[c.name] = CourseEntity(
                 name = c.name,
                 type = c.type,
                 credit = c.credit,
                 classNo = c.classNo,
                 composition = c.composition,
-                colorIndex = colorIndexFor(c.name),
+                colorIndex = colorIndex,
             )
             entriesByCourse[c.name] = mutableListOf()
         }
@@ -65,6 +69,10 @@ class ScheduleRepository(private val dao: ScheduleDao) {
         teacher.trim(), campus.trim(), building.trim(), room.trim(),
     )
 
+    /** 长按拖拽移动排课：改星期与起止节次（保持时长由调用方计算好）。 */
+    suspend fun moveEntry(entryId: Long, dayOfWeek: Int, startSection: Int, endSection: Int) =
+        dao.updateEntryTime(entryId, dayOfWeek, startSection, endSection)
+
     /** 删除单条排课。 */
     suspend fun deleteEntry(entryId: Long) = dao.deleteEntry(entryId)
 
@@ -87,6 +95,8 @@ class ScheduleRepository(private val dao: ScheduleDao) {
         if (n.isEmpty()) throw IllegalArgumentException("课程名不能为空")
         var courseId = dao.findCourseByName(n)?.id
         if (courseId == null) {
+            // 新课程颜色避开已占用的色板索引
+            val used = runCatching { dao.usedColorIndices() }.getOrDefault(emptyList())
             courseId = dao.insertCourse(
                 CourseEntity(
                     name = n,
@@ -94,7 +104,7 @@ class ScheduleRepository(private val dao: ScheduleDao) {
                     credit = "",
                     classNo = "",
                     composition = "",
-                    colorIndex = colorIndexFor(n),
+                    colorIndex = freeColorIndex(colorIndexFor(n), used.toSet()),
                 )
             )
         }
@@ -123,11 +133,20 @@ class ScheduleRepository(private val dao: ScheduleDao) {
                 ).also { INSTANCE = it }
             }
 
-        /** 课程名 -> 稳定颜色索引（0..9，对应 CourseBlockPalettes 十组派生色）。 */
+        /** 课程名 -> 稳定颜色索引（0..色板数-1，对应 CourseBlockPalettes 十二组派生色）。 */
         fun colorIndexFor(name: String): Int {
             var h = 0
             for (ch in name) h = h * 31 + ch.code
-            return ((h % 10) + 10) % 10
+            val n = com.example.composeapp.ui.theme.CourseBlockPalettes.size
+            return ((h % n) + n) % n
+        }
+
+        /** 从期望索引起找第一个未被占用的色板索引（课程数 ≤ 色板数时保证互不相同）。 */
+        private fun freeColorIndex(desired: Int, used: Set<Int>): Int {
+            val n = com.example.composeapp.ui.theme.CourseBlockPalettes.size
+            var i = ((desired % n) + n) % n
+            while (i in used) i = (i + 1) % n
+            return i
         }
     }
 }

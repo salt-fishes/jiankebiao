@@ -35,7 +35,7 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 今日课程桌面小组件 -->
+        <!-- 今日课程桌面小组件（3×2） -->
         <receiver
             android:name=".widget.ScheduleWidgetProvider"
             android:exported="false">
@@ -47,11 +47,34 @@
                 android:resource="@xml/schedule_widget_info" />
         </receiver>
 
+        <!-- 今日课程桌面小组件（2×2 紧凑） -->
+        <receiver
+            android:name=".widget.ScheduleWidgetCompactProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_widget_info_2x2" />
+        </receiver>
+
         <!-- 小组件列表数据源（仅系统绑定） -->
         <service
             android:name=".widget.ScheduleWidgetService"
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <!-- 课表分享图：授权系统分享面板读取 cache/share 下的 PNG -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- 课前提醒：闹钟触发 + 开机重排 -->
         <receiver

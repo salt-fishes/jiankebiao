@@ -65,6 +65,14 @@ import java.io.File
 
 private val TAB_LABELS = listOf("课表", "今日", "我的")
 
+/** 可导入的文件类型：课表 PDF（个人课表）+ 班级课表 Excel（.xls）。 */
+private val IMPORT_MIMES = arrayOf(
+    "application/pdf",
+    "application/vnd.ms-excel",
+    "application/msexcel",
+    "application/x-xls",
+)
+
 /** 应用外壳：底部导航三页 + 解析流程 + 全局状态。 */
 @Composable
 fun AppRoot() {
@@ -113,10 +121,19 @@ fun AppRoot() {
             scope.launch {
                 runCatching {
                     kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        // 复制到 cacheDir 唯一临时文件，避免覆盖 files/课表.pdf（旧 adb push 只读 444）
+                        // 复制到 cacheDir 唯一临时文件（保留扩展名供服务分派 PDF/Excel 解析），
+                        // 避免覆盖 files/课表.pdf（旧 adb push 只读 444）
+                        val name = runCatching {
+                            context.contentResolver.query(
+                                uri,
+                                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                                null, null, null,
+                            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                        }.getOrNull() ?: ""
+                        val ext = if (name.contains('.')) name.substringAfterLast('.') else "pdf"
                         val importFile = File(
                             context.cacheDir,
-                            "import_${System.currentTimeMillis()}.pdf"
+                            "import_${System.currentTimeMillis()}.$ext"
                         )
                         context.contentResolver.openInputStream(uri)?.use { input ->
                             importFile.outputStream().use { out ->
@@ -180,7 +197,7 @@ fun AppRoot() {
                         parseError = null
                         AppRefresh.onDataChanged(context)  // 新课表入库：刷新小组件 + 重排提醒
                         showSnackbar(
-                            if (parsed.courses.isEmpty()) "未识别到课程，请检查 PDF 格式"
+                            if (parsed.courses.isEmpty()) "未识别到课程，请检查文件格式"
                             else "导入完成：${parsed.courses.size} 门课程，建议检查课表"
                         )
                     },
@@ -304,8 +321,23 @@ fun AppRoot() {
                     glass = settings.customBgEnabled && settings.customBgPath.isNotBlank(),
                     onCourseClick = { selectedEntry = it },
                     onShowSnackbar = showSnackbar,
-                    onImportClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    onImportClick = { filePicker.launch(IMPORT_MIMES) },
                     onAddClick = { showAddCourse = true },
+                    onMoveEntry = { entry, day, start, end ->
+                        scope.launch {
+                            runCatching {
+                                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                    scheduleRepo.moveEntry(entry.entryId, day, start, end)
+                                }
+                            }.onSuccess {
+                                AppRefresh.onDataChanged(context)
+                                val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                                showSnackbar("已移动至${dayNames[day - 1]} 第 $start-$end 节")
+                            }.onFailure {
+                                showSnackbar("移动失败：${it.message ?: "未知错误"}")
+                            }
+                        }
+                    },
                 )
                 1 -> TodayScreen(
                     entries = entries,
@@ -319,7 +351,7 @@ fun AppRoot() {
                     entryCount = entries.size,
                     parsing = parsing,
                     parseError = parseError,
-                    onPickPdf = { filePicker.launch(arrayOf("application/pdf")) },
+                    onPickPdf = { filePicker.launch(IMPORT_MIMES) },
                     onSetSemesterStart = setSemesterStart,
                     onSetTotalWeeks = {
                         settingsRepo.setTotalWeeks(it)
@@ -394,8 +426,8 @@ fun AppRoot() {
 
     // ---- 关于页 / 隐私政策页（全屏覆盖；玻璃模式下透出背景） ----
     if (showAbout) {
-        com.example.composeapp.ui.mine.AboutPage(
-            versionName = "1.3",
+            com.example.composeapp.ui.mine.AboutPage(
+                versionName = "1.4",
             glass = glassOn,
             onBack = { showAbout = false },
         )

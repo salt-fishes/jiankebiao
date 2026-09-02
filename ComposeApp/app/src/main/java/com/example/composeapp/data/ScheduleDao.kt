@@ -29,6 +29,9 @@ interface ScheduleDao {
     @Query("SELECT * FROM courses WHERE name = :name LIMIT 1")
     suspend fun findCourseByName(name: String): CourseEntity?
 
+    @Query("SELECT colorIndex FROM courses WHERE hidden = 0")
+    suspend fun usedColorIndices(): List<Int>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCourse(course: CourseEntity): Long
 
@@ -56,6 +59,15 @@ interface ScheduleDao {
     )
     suspend fun updateEntryInfo(
         entryId: Long, teacher: String, campus: String, building: String, room: String,
+    )
+
+    @Query(
+        """UPDATE schedule_entries
+           SET dayOfWeek = :dayOfWeek, startSection = :startSection, endSection = :endSection
+           WHERE id = :entryId"""
+    )
+    suspend fun updateEntryTime(
+        entryId: Long, dayOfWeek: Int, startSection: Int, endSection: Int,
     )
 
     @Query("DELETE FROM schedule_entries WHERE id = :entryId")

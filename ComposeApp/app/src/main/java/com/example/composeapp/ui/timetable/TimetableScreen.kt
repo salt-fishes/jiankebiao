@@ -3,6 +3,7 @@ package com.example.composeapp.ui.timetable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -52,11 +55,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.composeapp.data.EntryWithCourse
@@ -68,6 +78,7 @@ import com.example.composeapp.ui.theme.courseBlockColors
 import com.example.composeapp.ui.theme.courseBlockColorsDynamic
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import kotlin.math.roundToInt
 import java.time.LocalTime
 
 private val ROW_HEIGHT = 56.dp
@@ -96,6 +107,7 @@ fun TimetableScreen(
     onShowSnackbar: (String) -> Unit,
     onImportClick: () -> Unit = {},
     onAddClick: () -> Unit = {},
+    onMoveEntry: (EntryWithCourse, Int, Int, Int) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val today = remember { LocalDate.now() }
@@ -116,7 +128,9 @@ fun TimetableScreen(
     ) { totalWeeks }
     val selectedWeek = pagerState.currentPage + 1
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var showWeekPicker by rememberSaveable { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     // 动态取色开关：课表块颜色随壁纸主题联动
     val dynamicColor = settings.dynamicColor
 
@@ -145,7 +159,7 @@ fun TimetableScreen(
                         androidx.compose.material3.CircularProgressIndicator()
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            "正在解析课表 PDF…",
+                            "正在解析课表…",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -174,13 +188,13 @@ fun TimetableScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "导入课表 PDF，自动识别课程与排课",
+                            "导入课表 PDF / Excel，自动识别课程与排课",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(24.dp))
                         // 三步引导
-                        GuideStep(1, "从教务系统导出课表 PDF", "支持同模板的课表文件")
+                        GuideStep(1, "从教务系统导出课表文件", "个人课表 PDF 或班级课表 Excel")
                         Spacer(Modifier.height(12.dp))
                         GuideStep(2, "点击下方按钮选择文件", "解析在手机本地完成，不上传")
                         Spacer(Modifier.height(12.dp))
@@ -190,7 +204,7 @@ fun TimetableScreen(
                             onClick = onImportClick,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("从手机导入课表 PDF")
+                            Text("从手机导入课表文件")
                         }
                         Spacer(Modifier.height(10.dp))
                         Text(
@@ -200,7 +214,7 @@ fun TimetableScreen(
                         )
                         Spacer(Modifier.height(18.dp))
                         Text(
-                            "目前只适配正方教务导出的课表 PDF\n有适配需求请发邮件至 xunguang255@163.com",
+                            "目前适配正方教务导出的课表 PDF 与班级课表 Excel\n有适配需求请发邮件至 xunguang255@163.com",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -217,7 +231,7 @@ fun TimetableScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
             )
             Text(
-                "正在解析课表 PDF…",
+                "正在解析课表…",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
@@ -272,6 +286,49 @@ fun TimetableScreen(
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                // 分享整周课表：离屏绘制 PNG 后调起系统分享
+                IconButton(onClick = {
+                    if (sharing) return@IconButton
+                    val monday = settings.semesterStartDate?.let {
+                        WeekCalculator.mondayOfWeek(it, selectedWeek)
+                    }
+                    if (monday == null) {
+                        onShowSnackbar("请先在「我的」设置开学时间")
+                        return@IconButton
+                    }
+                    sharing = true
+                    scope.launch {
+                        runCatching {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                val bmp = TimetableShare.renderWeek(
+                                    week = selectedWeek,
+                                    monday = monday,
+                                    entries = entries,
+                                    visibleDays = visibleDays,
+                                    maxSection = maxSection,
+                                    showNonCurrentWeek = settings.showNonCurrentWeek,
+                                )
+                                TimetableShare.share(context, bmp, selectedWeek)
+                            }
+                        }.onFailure {
+                            onShowSnackbar("生成分享图失败：${it.message ?: "未知错误"}")
+                        }
+                        sharing = false
+                    }
+                }) {
+                    if (sharing) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = "分享本周课表",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 IconButton(onClick = onAddClick) {
                     Icon(
                         Icons.Filled.Add,
@@ -359,6 +416,7 @@ fun TimetableScreen(
                     dynamicColor = dynamicColor,
                     glass = glass,
                     onCourseClick = onCourseClick,
+                    onMoveEntry = onMoveEntry,
                 )
             }
         }
@@ -485,23 +543,148 @@ private fun WeekGridPage(
     dynamicColor: Boolean,
     glass: Boolean,
     onCourseClick: (EntryWithCourse) -> Unit,
+    onMoveEntry: (EntryWithCourse, Int, Int, Int) -> Unit,
 ) {
-    Row(Modifier.fillMaxSize()) {
-        for (d in visibleDays) {
-            val dayEntries = allEntries.filter { it.dayOfWeek == d }
-            DayColumn(
-                dayEntries = dayEntries,
-                week = week,
-                maxSection = maxSection,
-                isToday = isCurrentWeek && today.dayOfWeek.value == d,
-                sectionTimes = sectionTimes,
-                showNonCurrentWeek = showNonCurrentWeek,
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { ROW_HEIGHT.toPx() }
+    // 拖拽状态：grab=手指抓取点（块内偏移），pointerLocal=手指当前块内位置（均为块局部像素）
+    var drag by remember { mutableStateOf<GridDrag?>(null) }
+    var gridCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var gridSize by remember { mutableStateOf(IntSize.Zero) }
+
+    fun handleDragEnd() {
+        val d = drag
+        drag = null
+        if (d == null || gridSize.width <= 0 || visibleDays.isEmpty()) return
+        // 幽灵块左上角（网格像素坐标）
+        val topLeft = d.ghostTopLeft()
+        val colW = gridSize.width.toFloat() / visibleDays.size
+        val start0 = d.entry.startSection ?: 1
+        val end0 = d.entry.endSection ?: start0
+        val dur = end0 - start0
+        // 目标列按块中心 x；目标起始节按块顶 y 取整
+        val dayIdx = ((topLeft.x + d.widthPx / 2) / colW).toInt()
+            .coerceIn(0, visibleDays.size - 1)
+        val newDay = visibleDays[dayIdx]
+        var newStart = (topLeft.y / rowHeightPx).roundToInt() + 1
+        newStart = newStart.coerceIn(1, (maxSection - dur).coerceAtLeast(1))
+        // 冲突避让：与本周同天其他课程重叠时，向上/向下找最近空位
+        fun conflicts(s: Int): Boolean = allEntries.any {
+            it.entryId != d.entry.entryId && it.dayOfWeek == newDay && it.isInWeek(week) &&
+                (it.startSection ?: 1) <= s + dur && (it.endSection ?: it.startSection ?: 1) >= s
+        }
+        val finalStart = if (!conflicts(newStart)) newStart else {
+            var found = -1
+            for (off in 1 until maxSection) {
+                val up = newStart - off
+                if (up >= 1 && !conflicts(up)) { found = up; break }
+                val down = newStart + off
+                if (down + dur <= maxSection && !conflicts(down)) { found = down; break }
+            }
+            found
+        }
+        if (finalStart >= 1) onMoveEntry(d.entry, newDay, finalStart, finalStart + dur)
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned {
+                gridCoords = it
+                gridSize = it.size
+            }
+    ) {
+        Row(Modifier.fillMaxSize()) {
+            for (d in visibleDays) {
+                val dayEntries = allEntries.filter { it.dayOfWeek == d }
+                DayColumn(
+                    dayEntries = dayEntries,
+                    week = week,
+                    maxSection = maxSection,
+                    isToday = isCurrentWeek && today.dayOfWeek.value == d,
+                    sectionTimes = sectionTimes,
+                    showNonCurrentWeek = showNonCurrentWeek,
+                    dynamicColor = dynamicColor,
+                    glass = glass,
+                    draggedEntryId = drag?.entry?.entryId,
+                    onDragStart = { entry, grab, blockCoords, sizePx ->
+                        // 块在网格内的位置用 localPositionOf 直接换算，
+                        // 不经窗口坐标（窗口坐标不含链上 offset，会跳到列顶）
+                        val grid = gridCoords
+                        val originInGrid = if (grid != null && blockCoords.isAttached) {
+                            grid.localPositionOf(blockCoords, Offset.Zero)
+                        } else Offset.Zero
+                        drag = GridDrag(
+                            entry,
+                            originInGrid,
+                            grab,
+                            grab,
+                            sizePx.width.toFloat(),
+                            sizePx.height.toFloat(),
+                        )
+                    },
+                    onDragDelta = { pointerLocal ->
+                        // 手指位置为块内绝对坐标，逐帧替换而非累计增量，保证严格跟手
+                        drag?.let { drag = it.copy(pointerLocal = pointerLocal) }
+                    },
+                    onDragEnd = { handleDragEnd() },
+                    onCourseClick = onCourseClick,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+        }
+
+        // 拖拽幽灵块：跟随手指浮于网格之上
+        drag?.let { d ->
+            DragGhost(
+                drag = d,
                 dynamicColor = dynamicColor,
-                glass = glass,
-                onCourseClick = onCourseClick,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
             )
         }
+    }
+}
+
+/** 拖拽中的课程块（位置均为「网格」像素坐标系，不经窗口坐标换算）。 */
+private data class GridDrag(
+    val entry: EntryWithCourse,
+    val blockOrigin: Offset,   // 拖起时块在网格中的位置
+    val grab: Offset,          // 手指抓取点（块内偏移）
+    val pointerLocal: Offset,  // 手指当前在块内的位置（每帧绝对替换）
+    val widthPx: Float,
+    val heightPx: Float,
+) {
+    /** 幽灵块左上角（网格 px）：保持抓取点相对块的位置不变。 */
+    fun ghostTopLeft(): Offset = blockOrigin + pointerLocal - grab
+}
+
+@Composable
+private fun DragGhost(
+    drag: GridDrag,
+    dynamicColor: Boolean,
+) {
+    val (container, onContainer) = if (dynamicColor) {
+        courseBlockColorsDynamic(drag.entry.colorIndex)
+    } else {
+        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+        courseBlockColors(drag.entry.colorIndex, isDark)
+    }
+    val topLeft = drag.ghostTopLeft()
+    Box(
+        Modifier
+            .absoluteOffset { IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()) }
+            .size(with(LocalDensity.current) { drag.widthPx.toDp() }, with(LocalDensity.current) { drag.heightPx.toDp() })
+            .shadow(8.dp, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+            .background(container, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = drag.entry.courseName + typeSymbol(drag.entry.type),
+            color = onContainer,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -515,6 +698,10 @@ private fun DayColumn(
     showNonCurrentWeek: Boolean,
     dynamicColor: Boolean,
     glass: Boolean,
+    draggedEntryId: Long?,
+    onDragStart: (EntryWithCourse, Offset, LayoutCoordinates, IntSize) -> Unit,
+    onDragDelta: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
     onCourseClick: (EntryWithCourse) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -548,16 +735,30 @@ private fun DayColumn(
             val slotCount = cluster.maxOf { it.second } + 1
             val cellW = colWidth / slotCount
             for ((entry, slot) in cluster) {
+                // 块的布局坐标（拖拽起点换算用；localPositionOf 需要完整链坐标）
+                var blockCoords by remember(entry.entryId) { mutableStateOf<LayoutCoordinates?>(null) }
                 CourseBlock(
                     entry = entry,
                     dimmed = !entry.isInWeek(week),
+                    isDragging = draggedEntryId == entry.entryId,
                     dynamicColor = dynamicColor,
                     glass = glass,
+                    onDragStart = { grab ->
+                        blockCoords?.let {
+                            onDragStart(
+                                entry, grab, it,
+                                IntSize(it.size.width, it.size.height),
+                            )
+                        }
+                    },
+                    onDragDelta = onDragDelta,
+                    onDragEnd = onDragEnd,
                     // 四周留距：块与块/网格线之间保留 2dp 间隙
                     modifier = Modifier
                         .offset(x = cellW * slot + 2.dp, y = blockTop(entry) + 3.dp)
                         .width(cellW - 4.dp)
-                        .height(blockHeight(entry) - 6.dp),
+                        .height(blockHeight(entry) - 6.dp)
+                        .onGloballyPositioned { blockCoords = it },
                     onClick = { onCourseClick(entry) },
                 )
             }
@@ -608,6 +809,10 @@ private fun CourseBlock(
     dynamicColor: Boolean,
     glass: Boolean,
     onClick: () -> Unit,
+    isDragging: Boolean = false,
+    onDragStart: ((Offset) -> Unit)? = null,
+    onDragDelta: ((Offset) -> Unit)? = null,   // 参数 = 手指在本块内的位置（绝对坐标）
+    onDragEnd: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // 动态取色开启：从主题派生三组容器色；关闭：十组品牌色（自动适配亮暗主题）
@@ -631,6 +836,21 @@ private fun CourseBlock(
         scaleX = pressScale
         scaleY = pressScale
     }
+    // 长按拖拽换位置（与单击手势独立：短按点击、长按拖起）
+    val dragModifier = if (onDragStart != null && onDragDelta != null) {
+        Modifier.pointerInput(entry.entryId) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = { onDragStart?.invoke(it) },
+                onDrag = { change, _ ->
+                    change.consume()
+                    // 绝对坐标：每次上报手指在块内的位置，避免增量累计漂移
+                    onDragDelta?.invoke(change.position)
+                },
+                onDragEnd = { onDragEnd?.invoke() },
+                onDragCancel = { onDragEnd?.invoke() },
+            )
+        }
+    } else Modifier
     val gestureModifier = Modifier.pointerInput(entry.entryId) {
         detectTapGestures(
             onPress = {
@@ -646,14 +866,15 @@ private fun CourseBlock(
         val cs = MaterialTheme.colorScheme
         BoxWithConstraints(
             modifier = modifier
-                .alpha(if (dimmed) 0.38f else 1f)
+                .alpha(if (isDragging) 0.25f else if (dimmed) 0.38f else 1f)
                 .then(pressModifier)
+                .then(dragModifier)
         ) {
             // 一行约 3 字：按去掉内边距后的可用宽度计算（CJK 全角 ≈ 字号）
             val nameSize = (((maxWidth.value - 8f) / 3f).coerceIn(8f, 14f))
             com.example.composeapp.ui.theme.GlassSurface(
                 modifier = Modifier.fillMaxSize(),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
             ) {
                 Column(
                     Modifier
@@ -698,9 +919,10 @@ private fun CourseBlock(
     BoxWithConstraints(
         modifier = modifier
             .padding(horizontal = 2.dp)
-            .alpha(if (dimmed) 0.38f else 1f)
+            .alpha(if (isDragging) 0.25f else if (dimmed) 0.38f else 1f)
             .then(pressModifier)
-            .background(container, MaterialTheme.shapes.small)
+            .then(dragModifier)
+            .background(container, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
             .clipToBounds()
             .then(gestureModifier)
             .padding(horizontal = 3.dp, vertical = 4.dp)

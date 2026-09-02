@@ -14,10 +14,17 @@ import kotlinx.coroutines.runBlocking
  */
 class ScheduleWidgetService : RemoteViewsService() {
 
-    override fun onGetViewFactory(intent: Intent?): RemoteViewsFactory =
-        Factory(applicationContext)
+    companion object {
+        const val EXTRA_COMPACT_ITEMS = "compact_items"
+    }
 
-    private class Factory(private val context: Context) : RemoteViewsFactory {
+    override fun onGetViewFactory(intent: Intent?): RemoteViewsFactory =
+        Factory(applicationContext, intent?.getBooleanExtra(EXTRA_COMPACT_ITEMS, false) ?: false)
+
+    private class Factory(
+        private val context: Context,
+        private val compact: Boolean,
+    ) : RemoteViewsFactory {
 
         private var rows: List<WidgetRow> = emptyList()
 
@@ -38,7 +45,8 @@ class ScheduleWidgetService : RemoteViewsService() {
         override fun getViewAt(position: Int): RemoteViews? {
             if (position < 0 || position >= rows.size) return null
             val r = rows[position]
-            val views = RemoteViews(context.packageName, R.layout.widget_schedule_item)
+            val layout = if (compact) R.layout.widget_schedule_compact_item else R.layout.widget_schedule_item
+            val views = RemoteViews(context.packageName, layout)
             views.setTextViewText(R.id.item_time_start, r.start)
             views.setTextViewText(R.id.item_time_end, r.end)
             views.setTextViewText(R.id.item_name, r.name)

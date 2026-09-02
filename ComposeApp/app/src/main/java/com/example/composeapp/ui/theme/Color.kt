@@ -76,7 +76,7 @@ val DarkInversePrimary = Color(0xFF585992)
 val DarkSurfaceDim = Color(0xFF131316)
 val DarkSurfaceBright = Color(0xFF39393C)
 
-// ---- 课程块派生色（10 组，seed 色相每 33° 展开，MD3 容器色调对）----
+// ---- 课程块派生色（12 组，seed 色相每 30° 展开，MD3 容器色调对）----
 data class BlockPalette(
     val containerLight: Color,
     val onContainerLight: Color,
@@ -92,9 +92,11 @@ val CourseBlockPalettes: List<BlockPalette> = listOf(
     BlockPalette(Color(0xFFFFDCC4), Color(0xFF4E2600), Color(0xFF6F3900), Color(0xFFFFDCC4)), // hue 57
     BlockPalette(Color(0xFFFFDF91), Color(0xFF3E2E00), Color(0xFF594400), Color(0xFFFFDF91)), // hue 90
     BlockPalette(Color(0xFFD9EA9E), Color(0xFF293500), Color(0xFF3F4C11), Color(0xFFD9EA9E)), // hue 123
+    BlockPalette(Color(0xFFBDF2C9), Color(0xFF00391D), Color(0xFF005229), Color(0xFFB4F5C4)), // hue 138
     BlockPalette(Color(0xFFA4F4BA), Color(0xFF00391C), Color(0xFF00522B), Color(0xFFA4F4BA)), // hue 156
     BlockPalette(Color(0xFF5DF9EC), Color(0xFF003733), Color(0xFF00504B), Color(0xFF5DF9EC)), // hue 189
     BlockPalette(Color(0xFFB5EBFF), Color(0xFF003543), Color(0xFF004E60), Color(0xFFB5EBFF)), // hue 222
+    BlockPalette(Color(0xFFE2E1FF), Color(0xFF1A1B60), Color(0xFF43447E), Color(0xFFE3E2FF)), // hue 255
 )
 
 /** 课程 colorIndex -> (容器色, 内容色)，自动适配亮暗主题。 */
@@ -122,7 +124,7 @@ private fun rgbToHsv(c: Color): FloatArray {
 
 /**
  * 动态取色下的课程块颜色：以当前 colorScheme 的 primary 色相为基准，
- * 按 36° 间隔旋转生成 10 组容器/内容色调对（与默认十组同款结构），
+ * 按 30° 间隔旋转生成 12 组容器/内容色调对（与默认十二组同款结构），
  * 使动态取色下仍保持十组颜色区分度，且随壁纸主题联动。
  */
 @Composable
@@ -130,7 +132,7 @@ fun courseBlockColorsDynamic(index: Int): Pair<Color, Color> {
     val cs = MaterialTheme.colorScheme
     val dark = cs.surface.luminance() < 0.5f
     val hsv = rgbToHsv(cs.primary)
-    val hue = (hsv[0] + (index % 10) * 36f) % 360f
+    val hue = (hsv[0] + (index % CourseBlockPalettes.size) * 30f) % 360f
     return if (dark) {
         Color.hsv(hue, saturation = 0.40f, value = 0.30f) to
             Color.hsv(hue, saturation = 0.35f, value = 0.90f)

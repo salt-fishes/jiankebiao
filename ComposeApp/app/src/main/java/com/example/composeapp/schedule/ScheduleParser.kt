@@ -36,17 +36,25 @@ object ScheduleParser {
     /** 从拼接文本中抽取所有 "N-M周" / "N周" 片段。 */
     private val WEEK_RANGES_RE = Regex("""(\d+\s*-\s*\d+|\d+)\s*周""")
 
-    /** 解析周次描述 "1-3周,5-15周" / "9周,15周" -> 展开的周列表。 */
+    /** 解析周次描述 "1-3周,5-15周" / "9周,15周" / "1-16周(单周)" -> 展开的周列表。 */
     fun parseWeeks(text: String): List<Int> {
         val weeks = mutableSetOf<Int>()
-        text.replace("周", " ").split(Regex("[;；,，]")).forEach { part ->
-            val m = WEEK_RE.matchEntire(part.trim())
-            if (m != null) {
-                (m.groupValues[1].toInt()..m.groupValues[2].toInt()).forEach { weeks.add(it) }
-            } else {
-                val s = SINGLE_WEEK_RE.matchEntire(part.trim())
-                if (s != null) weeks.add(s.groupValues[1].toInt())
+        text.replace("周", " ").split(Regex("[;；,，]")).forEach { raw ->
+            val part0 = raw.trim()
+            // "(单周)/(双周)" 标记：按奇偶过滤本段展开结果
+            val parity = when {
+                "单" in part0 -> 1
+                "双" in part0 -> 0
+                else -> -1
             }
+            val part = part0.replace(Regex("[单双()（）]"), "").trim()
+            val m = WEEK_RE.matchEntire(part)
+            val range: List<Int> = when {
+                m != null -> (m.groupValues[1].toInt()..m.groupValues[2].toInt()).toList()
+                SINGLE_WEEK_RE.matchEntire(part) != null -> listOf(part.toInt())
+                else -> emptyList()
+            }
+            range.filter { parity < 0 || it % 2 == parity }.forEach { weeks.add(it) }
         }
         return weeks.sorted()
     }

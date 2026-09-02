@@ -38,7 +38,13 @@ data class WidgetRow(
     val past: Boolean,
 )
 
-class ScheduleWidgetProvider : AppWidgetProvider() {
+open class ScheduleWidgetProvider : AppWidgetProvider() {
+
+    /** 小组件布局（2×2 紧凑变体覆盖）。 */
+    protected open val layoutRes: Int = R.layout.widget_schedule
+
+    /** 列表项是否用紧凑布局（随 RemoteAdapter intent 传给 Service）。 */
+    protected open val compactItems: Boolean = false
 
     override fun onUpdate(
         context: Context,
@@ -47,9 +53,11 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
     ) {
         val pending = goAsync()
         val appContext = context.applicationContext
+        val layout = layoutRes
+        val compact = compactItems
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val views = buildViews(appContext)
+                val views = buildViews(appContext, layout, compact)
                 for (id in appWidgetIds) appWidgetManager.updateAppWidget(id, views)
             } catch (_: Throwable) {
             } finally {
@@ -60,16 +68,24 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 
     companion object {
 
-        /** 数据变化后的主动刷新入口。 */
+        /** 数据变化后的主动刷新入口（更新 3×2 与 2×2 两种小组件）。 */
         fun requestUpdate(context: Context) {
             val appContext = context.applicationContext
             val mgr = AppWidgetManager.getInstance(appContext)
-            val ids = mgr.getAppWidgetIds(ComponentName(appContext, ScheduleWidgetProvider::class.java))
-            if (ids.isEmpty()) return
+            val targets = listOf(
+                ComponentName(appContext, ScheduleWidgetProvider::class.java) to
+                    (R.layout.widget_schedule to false),
+                ComponentName(appContext, ScheduleWidgetCompactProvider::class.java) to
+                    (R.layout.widget_schedule_compact to true),
+            )
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val views = buildViews(appContext)
-                    for (id in ids) mgr.updateAppWidget(id, views)
+                    for ((cn, layout) in targets) {
+                        val ids = mgr.getAppWidgetIds(cn)
+                        if (ids.isEmpty()) continue
+                        val views = buildViews(appContext, layout.first, layout.second)
+                        for (id in ids) mgr.updateAppWidget(id, views)
+                    }
                 } catch (_: Throwable) {
                 }
             }
@@ -89,14 +105,19 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                 .sortedBy { it.startSection ?: 99 }
             val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
             val rows = entries.map { e ->
-                val span = TimeUtils.sectionMinutes(settings.sectionTimes, e.startSection ?: 1)
+                // 开始时间取起始节次、结束时间取结束节次：连堂课（如 6-8 节）显示最后一节的下课时间
+                val startSpan = TimeUtils.sectionMinutes(settings.sectionTimes, e.startSection ?: 1)
+                val endSpan = TimeUtils.sectionMinutes(
+                    settings.sectionTimes,
+                    e.endSection ?: e.startSection ?: 1,
+                )
                 WidgetRow(
                     entryId = e.entryId,
-                    start = span?.let { fmt(it.first) } ?: "",
-                    end = span?.let { fmt(it.second) } ?: "",
+                    start = startSpan?.let { fmt(it.first) } ?: "",
+                    end = endSpan?.let { fmt(it.second) } ?: "",
                     name = e.courseName + typeSymbol(e.type),
                     loc = shortLocation(e),
-                    past = span != null && nowMinutes > span.second,
+                    past = endSpan != null && nowMinutes > endSpan.second,
                 )
             }
             return "第 $rawWeek 周" to rows
@@ -117,9 +138,9 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         internal fun fmt(minutesOfDay: Int): String =
             "%02d:%02d".format(minutesOfDay / 60, minutesOfDay % 60)
 
-        private suspend fun buildViews(context: Context): RemoteViews {
+        private suspend fun buildViews(context: Context, layoutRes: Int, compactItems: Boolean): RemoteViews {
             val (week, rows) = loadRows(context)
-            val views = RemoteViews(context.packageName, R.layout.widget_schedule)
+            val views = RemoteViews(context.packageName, layoutRes)
 
             // 点击整块打开应用
             val pi = PendingIntent.getActivity(
@@ -136,7 +157,11 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             )
             views.setTextViewText(R.id.widget_count, if (rows.isNotEmpty()) "${rows.size} 节" else "")
 
-            views.setRemoteAdapter(R.id.widget_list, Intent(context, ScheduleWidgetService::class.java))
+            views.setRemoteAdapter(
+                R.id.widget_list,
+                Intent(context, ScheduleWidgetService::class.java)
+                    .putExtra(ScheduleWidgetService.EXTRA_COMPACT_ITEMS, compactItems),
+            )
             views.setEmptyView(R.id.widget_list, R.id.widget_empty)
             return views
         }

@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.composeapp.data.ScheduleRepository
 import com.example.composeapp.schedule.SchedulePdfParser
+import com.example.composeapp.schedule.ScheduleXlsParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +25,7 @@ import java.io.File
 /**
  * 前台解析服务：课表 PDF 解析耗时较长（OCR），在前台服务中执行，
  * 即使界面被系统回收，解析仍继续，完成后写入 result.json 并广播通知界面恢复。
+ * 班级课表 Excel（.xls）为纯文本解析，秒级完成，同样走此服务以复用入库与广播流程。
  */
 class ScheduleParseService : Service() {
 
@@ -46,7 +48,12 @@ class ScheduleParseService : Service() {
         startForegroundCompat("正在解析课表…")
         scope.launch {
             val result = runCatching {
-                SchedulePdfParser(this@ScheduleParseService, options).parse(File(path))
+                if (ScheduleXlsParser.isXlsLike(path)) {
+                    // 班级课表 Excel：结构化文本直接解析
+                    ScheduleXlsParser.parse(File(path))
+                } else {
+                    SchedulePdfParser(this@ScheduleParseService, options).parse(File(path))
+                }
             }
             // 解析成功：写入 Room（失败不影响 result.json 流程）
             result.getOrNull()?.let { parsed ->
@@ -63,7 +70,7 @@ class ScheduleParseService : Service() {
             // 必须指定包名：Android 13+ 隐式广播无法送达 RECEIVER_NOT_EXPORTED 的运行时接收器
             sendBroadcast(Intent(ACTION_PARSE_DONE).setPackage(packageName))
             stopForegroundCompat()
-            // 清理导入临时文件（cacheDir 下 import_*.pdf），避免堆积
+            // 清理导入临时文件（cacheDir 下 import_*.pdf / import_*.xls），避免堆积
             runCatching {
                 cacheDir.listFiles()?.filter { it.name.startsWith("import_") }?.forEach { it.delete() }
             }

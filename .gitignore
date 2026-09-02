@@ -28,11 +28,11 @@ _ref/
 *.png
 *.onnx
 
-# ===== 参考/练习项目（非应用源码）=====
-HelloWorld/
+# 根目录的真实课表导出（含真实课程/教师信息，不入库）
+/*.xls
+
+# ===== 编辑器本地配置 =====
 .trae/
-material-3-skill-master/
-fu-liquiglass-skill-main/
 
 # ===== Python 缓存 =====
 __pycache__/

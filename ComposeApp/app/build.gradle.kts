@@ -27,8 +27,8 @@ android {
         applicationId = "com.example.composeapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {
@@ -92,4 +92,7 @@ dependencies {
     // PDFBox 无对应字体渲染出豆腐块，故回退系统渲染器）
     // 保留 PDFBox 依赖备查；如需 PDFBox 渲染需额外打包 CJK 字体 + FontMapper
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // 单元测试（ScheduleXlsParser 班级课表 Excel 解析等）
+    testImplementation("junit:junit:4.13.2")
 }

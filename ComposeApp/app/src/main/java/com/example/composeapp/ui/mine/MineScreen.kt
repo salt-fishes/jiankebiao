@@ -329,7 +329,7 @@ fun MineScreen(
 
         SectionHeader("课表数据")
         Button(onClick = onPickPdf, enabled = !parsing, modifier = Modifier.fillMaxWidth()) {
-            Text(if (parsing) "解析中…" else "导入课表 PDF")
+            Text(if (parsing) "解析中…" else "导入课表文件（PDF / Excel）")
         }
         if (parsing) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
