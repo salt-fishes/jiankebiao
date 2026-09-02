@@ -6,13 +6,26 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/** 课程（按名称唯一）。地点/教师随排课条目存储——同一门课不同天可能不同教室。 */
+/** 课表（多课表管理的第一实体）：一组课程 + 自己的开学日、总周数与作息时间。 */
+@Entity(tableName = "timetables")
+data class TimetableEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val startMillis: Long,     // 第 1 周周一 00:00；0 = 待从旧设置回填
+    val totalWeeks: Int,
+    @ColumnInfo(defaultValue = "0") val sectionsPerDay: Int = 0,        // 0 = 未单独设置（继承全局）
+    @ColumnInfo(defaultValue = "") val sectionTimesCsv: String = "",    // 空 = 未单独设置（继承全局）
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** 课程（课表内按名称唯一）。地点/教师随排课条目存储——同一门课不同天可能不同教室。 */
 @Entity(
     tableName = "courses",
-    indices = [Index(value = ["name"], unique = true)]
+    indices = [Index(value = ["timetableId", "name"], unique = true), Index("timetableId")]
 )
 data class CourseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(defaultValue = "1") val timetableId: Long = 1,  // 所属课表（迁移默认 1）
     val name: String,
     val type: String,          // 讲课/实验/上机/实践/集中实践
     val credit: String,

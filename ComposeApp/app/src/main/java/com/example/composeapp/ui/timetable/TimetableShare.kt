@@ -29,6 +29,7 @@ object TimetableShare {
         visibleDays: List<Int>,
         maxSection: Int,
         showNonCurrentWeek: Boolean,
+        timetableName: String = "",
     ): Bitmap {
         val axisW = 84f
         val dayW = if (visibleDays.size >= 7) 138f else 190f
@@ -68,9 +69,11 @@ object TimetableShare {
             strokeWidth = 1.5f
         }
 
-        // ---- 标题区：第 N 周 + 日期范围 ----
+        // ---- 标题区：课表名 · 第 N 周 + 日期范围 ----
         var y = pad + 52f
-        canvas.drawText("简课表 · 第 $week 周", pad, y, titlePaint)
+        val title = if (timetableName.isBlank()) "简课表 · 第 $week 周"
+        else "$timetableName · 第 $week 周"
+        canvas.drawText(title, pad, y, titlePaint)
         y += 40f
         canvas.drawText(
             monday?.let {

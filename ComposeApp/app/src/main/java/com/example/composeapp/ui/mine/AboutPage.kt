@@ -103,11 +103,14 @@ fun AboutPage(
             Spacer(Modifier.height(24.dp))
 
             SectionTitle("主要功能")
+            FeatureRow("多课表管理", "班级课表 / 个人课表 / 同学的课表并存，随时切换", glass)
             FeatureRow("课表周视图", "左右滑动切换周次，今日课程高亮，当前时间线提示", glass)
             FeatureRow("今日页", "正在上课 / 下一节课 / 今日课程时间轴", glass)
-            FeatureRow("PDF 自动识别", "导入课表 PDF 自动解析课程、节次、周次与地点", glass)
+            FeatureRow("PDF / Excel 导入", "个人课表 PDF 本地识别；班级课表 Excel 直接解析", glass)
+            FeatureRow("长按拖拽调课", "长按课程块即可跨天、跨节次移动", glass)
+            FeatureRow("课表分享", "一键生成整周课表图片，调起系统分享", glass)
             FeatureRow("本地编辑", "点课程可修改教师、地点，删除排课", glass)
-            FeatureRow("桌面小组件", "桌面直接查看今日课程列表", glass)
+            FeatureRow("桌面小组件", "3×2 与 2×2 两种规格，可分别绑定课表", glass)
             FeatureRow("上课提醒", "课前 5/10/15/20 分钟本地通知，准点触发", glass)
             FeatureRow("个性化", "深色模式、动态取色、作息时间、周末显隐自定义", glass)
             FeatureRow("自定义背景（实验）", "上传背景图片，首页/今日页/底栏磨砂玻璃风格", glass)
@@ -127,12 +130,25 @@ fun AboutPage(
 
             Spacer(Modifier.height(24.dp))
             SectionTitle("更新记录")
+            ChangelogItem("1.5", listOf(
+                "多课表管理：班级 / 个人 / 同学的课表并存，顶栏面板快速切换",
+                "新建课表可选导入文件或复制现有课表，自动命名与开学日识别",
+                "每张课表独立的开学日、总周数与作息时间",
+                "小组件按实例绑定课表（3×2 / 2×2）",
+                "修复周次计算与开学前显示问题；手势返回",
+            ), glass, tag = "当前版本")
+            ChangelogItem("1.4", listOf(
+                "班级课表 Excel 导入（免 OCR，秒级）",
+                "长按拖拽调课、一键分享整周课表",
+                "2×2 桌面小组件、小组件连堂课时间修正",
+                "课程颜色互不相同（12 组色板去重分配）",
+            ), glass)
             ChangelogItem("1.3", listOf(
                 "桌面小组件：今日课程速览",
                 "上课提醒：课前 5/10/15/20 分钟本地通知，重启自动恢复",
                 "实验性：自定义背景 + 磨砂玻璃界面（首页/今日页/底栏）",
                 "课程块四周留距与顶部色条（玻璃模式）",
-            ), glass, tag = "当前版本")
+            ), glass)
             ChangelogItem("1.2", listOf(
                 "课程编辑：改名、教师、地点，删除单节排课",
                 "新增课程：自定义星期、节次与周次",

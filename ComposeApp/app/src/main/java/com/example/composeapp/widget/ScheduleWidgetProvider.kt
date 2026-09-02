@@ -12,6 +12,7 @@ import com.example.composeapp.R
 import com.example.composeapp.data.AppDatabase
 import com.example.composeapp.data.EntryWithCourse
 import com.example.composeapp.data.SettingsRepository
+import com.example.composeapp.data.TimetableEntity
 import com.example.composeapp.data.TimeUtils
 import com.example.composeapp.data.WeekCalculator
 import kotlinx.coroutines.CoroutineScope
@@ -57,8 +58,13 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
         val compact = compactItems
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val views = buildViews(appContext, layout, compact)
-                for (id in appWidgetIds) appWidgetManager.updateAppWidget(id, views)
+                // 每个实例按自己的绑定课表独立渲染
+                for (id in appWidgetIds) {
+                    val views = buildViews(
+                        appContext, layout, compact, resolveTimetableId(appContext, id),
+                    )
+                    appWidgetManager.updateAppWidget(id, views)
+                }
             } catch (_: Throwable) {
             } finally {
                 pending.finish()
@@ -68,47 +74,90 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
 
     companion object {
 
-        /** 数据变化后的主动刷新入口（更新 3×2 与 2×2 两种小组件）。 */
+        /** 实例绑定的课表：未设置(0)时跟随当前活动课表。 */
+        private fun resolveTimetableId(context: Context, widgetId: Int): Long =
+            getWidgetBinding(context, widgetId) ?: resolveActiveTimetableId(context)
+
+        /** 绑定 id（>0），未绑定返回 null。供 Service 工厂兜底使用。 */
+        internal fun getWidgetBinding(context: Context, widgetId: Int): Long? =
+            SettingsRepository.getInstance(context).getWidgetTimetableId(widgetId)
+                .takeIf { it > 0L }
+
+        internal fun resolveActiveTimetableId(context: Context): Long =
+            SettingsRepository.getInstance(context).activeTimetableId
+
+        /** 数据变化后的主动刷新入口（更新 3×2 与 2×2 的所有实例，并剪除失效绑定）。 */
         fun requestUpdate(context: Context) {
             val appContext = context.applicationContext
             val mgr = AppWidgetManager.getInstance(appContext)
+            val settingsRepo = SettingsRepository.getInstance(appContext)
             val targets = listOf(
-                ComponentName(appContext, ScheduleWidgetProvider::class.java) to
-                    (R.layout.widget_schedule to false),
-                ComponentName(appContext, ScheduleWidgetCompactProvider::class.java) to
-                    (R.layout.widget_schedule_compact to true),
+                Triple(
+                    ComponentName(appContext, ScheduleWidgetProvider::class.java),
+                    R.layout.widget_schedule, false,
+                ),
+                Triple(
+                    ComponentName(appContext, ScheduleWidgetCompactProvider::class.java),
+                    R.layout.widget_schedule_compact, true,
+                ),
             )
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    for ((cn, layout) in targets) {
+                    val validIds = mutableSetOf<Int>()
+                    for ((cn, layout, compact) in targets) {
                         val ids = mgr.getAppWidgetIds(cn)
-                        if (ids.isEmpty()) continue
-                        val views = buildViews(appContext, layout.first, layout.second)
-                        for (id in ids) mgr.updateAppWidget(id, views)
+                        validIds.addAll(ids.toList())
+                        for (id in ids) {
+                            val views = buildViews(
+                                appContext, layout, compact,
+                                resolveTimetableId(appContext, id),
+                            )
+                            mgr.updateAppWidget(id, views)
+                        }
                     }
+                    settingsRepo.pruneWidgetBindings(validIds)
                 } catch (_: Throwable) {
                 }
             }
         }
 
-        /** 加载今日课程行；返回 (周数标签, 行列表)。 */
-        internal suspend fun loadRows(context: Context): Pair<String, List<WidgetRow>> {
+        /** 加载指定课表的今日课程行；返回 (课表名, 行列表)。 */
+        internal suspend fun loadRows(
+            context: Context,
+            timetableId: Long,
+        ): Pair<String, List<WidgetRow>> {
             val settings = SettingsRepository.getInstance(context).current
+            val dao = AppDatabase.getInstance(context).scheduleDao()
+            // 绑定的课表（可能非活动课表）：开学日/周数/作息/名称都取自它
+            val timetable = dao.getTimetable(timetableId)
+                ?: TimetableEntity(
+                    name = settings.timetableName.ifBlank { "我的课表" },
+                    startMillis = settings.semesterStart,
+                    totalWeeks = settings.totalWeeks,
+                )
+            val sectionTimes = SettingsRepository.sectionTimesFor(
+                timetable.sectionTimesCsv, timetable.sectionsPerDay, settings.sectionTimes,
+            )
             val today = LocalDate.now()
-            val rawWeek = WeekCalculator.currentWeek(settings.semesterStartDate, today)
+            val startDate = if (timetable.startMillis == 0L) null
+            else java.time.Instant.ofEpochMilli(timetable.startMillis)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            val rawWeek = WeekCalculator.currentWeek(startDate, today)
             // 开学前（周数 <= 0）不展示任何课程，避免提前泄露开学后的安排
             if (rawWeek < 1) return "未开学" to emptyList()
             // 遵循「显示周末」开关：隐藏周末则周六/日不展示课程
-            if (!settings.showWeekend && today.dayOfWeek.value >= 6) return "第 $rawWeek 周" to emptyList()
-            val entries = AppDatabase.getInstance(context).scheduleDao().observeAllEntries().first()
+            if (!settings.showWeekend && today.dayOfWeek.value >= 6) {
+                return "第 $rawWeek 周" to emptyList()
+            }
+            val entries = dao.getAllEntries(timetableId)
                 .filter { it.dayOfWeek == today.dayOfWeek.value && it.isInWeek(rawWeek) }
                 .sortedBy { it.startSection ?: 99 }
             val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
             val rows = entries.map { e ->
                 // 开始时间取起始节次、结束时间取结束节次：连堂课（如 6-8 节）显示最后一节的下课时间
-                val startSpan = TimeUtils.sectionMinutes(settings.sectionTimes, e.startSection ?: 1)
+                val startSpan = TimeUtils.sectionMinutes(sectionTimes, e.startSection ?: 1)
                 val endSpan = TimeUtils.sectionMinutes(
-                    settings.sectionTimes,
+                    sectionTimes,
                     e.endSection ?: e.startSection ?: 1,
                 )
                 WidgetRow(
@@ -138,8 +187,15 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
         internal fun fmt(minutesOfDay: Int): String =
             "%02d:%02d".format(minutesOfDay / 60, minutesOfDay % 60)
 
-        private suspend fun buildViews(context: Context, layoutRes: Int, compactItems: Boolean): RemoteViews {
-            val (week, rows) = loadRows(context)
+        private suspend fun buildViews(
+            context: Context,
+            layoutRes: Int,
+            compactItems: Boolean,
+            timetableId: Long,
+        ): RemoteViews {
+            val (week, rows) = loadRows(context, timetableId)
+            val timetableName = AppDatabase.getInstance(context).scheduleDao()
+                .getTimetable(timetableId)?.name ?: "课表"
             val views = RemoteViews(context.packageName, layoutRes)
 
             // 点击整块打开应用
@@ -148,6 +204,8 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             views.setOnClickPendingIntent(R.id.widget_root, pi)
+            // 标题显示所绑定课表的名称
+            views.setTextViewText(R.id.widget_title, timetableName)
 
             val today = LocalDate.now()
             val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -160,7 +218,8 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
             views.setRemoteAdapter(
                 R.id.widget_list,
                 Intent(context, ScheduleWidgetService::class.java)
-                    .putExtra(ScheduleWidgetService.EXTRA_COMPACT_ITEMS, compactItems),
+                    .putExtra(ScheduleWidgetService.EXTRA_COMPACT_ITEMS, compactItems)
+                    .putExtra(ScheduleWidgetService.EXTRA_TIMETABLE_ID, timetableId),
             )
             views.setEmptyView(R.id.widget_list, R.id.widget_empty)
             return views

@@ -1,0 +1,37 @@
+name: Android CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "README.md"
+      - "*.md"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true   # OCR 模型经 LFS 入库，编译必需
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Unit tests + debug build
+        working-directory: ComposeApp
+        run: ./gradlew testDebugUnitTest assembleDebug --console=plain --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: ComposeApp/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14

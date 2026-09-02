@@ -25,7 +25,8 @@ import java.io.File
 /**
  * 前台解析服务：课表 PDF 解析耗时较长（OCR），在前台服务中执行，
  * 即使界面被系统回收，解析仍继续，完成后写入 result.json 并广播通知界面恢复。
- * 班级课表 Excel（.xls）为纯文本解析，秒级完成，同样走此服务以复用入库与广播流程。
+ * 班级课表 Excel（.xls）为纯文本解析，秒级完成，同样走此服务以复用流程。
+ * 解析结果【不再自动入库】——多课表下导入目标（新建/覆盖哪张）由用户在界面确认。
  */
 class ScheduleParseService : Service() {
 
@@ -39,6 +40,7 @@ class ScheduleParseService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val sourceName = intent.getStringExtra(EXTRA_SOURCE_NAME) ?: ""
         val options = SchedulePdfParser.ParseOptions(
             bandCount = intent.getIntExtra(EXTRA_BAND_COUNT, 4),
             // 行高约 36px（2x 渲染），接缝处需 ≥2 行重叠才能保证整行完整进入某一 band
@@ -55,15 +57,12 @@ class ScheduleParseService : Service() {
                     SchedulePdfParser(this@ScheduleParseService, options).parse(File(path))
                 }
             }
-            // 解析成功：写入 Room（失败不影响 result.json 流程）
-            result.getOrNull()?.let { parsed ->
-                runCatching { ScheduleRepository.getInstance(this@ScheduleParseService).importSchedule(parsed) }
-                    .onFailure { t ->
-                        android.util.Log.w(TAG, "课表入库失败", t)
-                    }
-            }
+            // 建议课表名兜底：Excel 表头缺省时从来源文件名提取（"张三(2026-2027-1)课表" → "张三的课表"）
             val json = result.fold(
-                { it.toJson() },
+                { parsed ->
+                    val fallback = parsed.suggestedName.ifBlank { nameFromSource(sourceName) }
+                    parsed.copy(suggestedName = fallback).toJson()
+                },
                 { t -> "{\"error\": ${org.json.JSONObject.quote(t.message ?: "解析失败")}}" }
             )
             File(filesDir, RESULT_FILE).writeText(json)
@@ -77,6 +76,13 @@ class ScheduleParseService : Service() {
             stopSelf()
         }
         return START_NOT_STICKY
+    }
+
+    /** "张三(2026-2027-1)课表.pdf" → "张三的课表"；无法提取返回空串。 */
+    private fun nameFromSource(sourceName: String): String {
+        val base = sourceName.substringBeforeLast('.')
+        val m = Regex("^(.+?)(?:[（(][^)）]*[)）])?课表$").find(base)?.groupValues?.get(1)?.trim()
+        return if (m.isNullOrBlank()) "" else "${m}的课表"
     }
 
     private fun startForegroundCompat(text: String) {
@@ -122,15 +128,17 @@ class ScheduleParseService : Service() {
         private const val CHANNEL_ID = "schedule_parse"
         private const val NOTIF_ID = 1001
         const val EXTRA_PDF_PATH = "pdf_path"
+        const val EXTRA_SOURCE_NAME = "source_name"
         const val EXTRA_BAND_COUNT = "band_count"
         const val EXTRA_BAND_OVERLAP = "band_overlap"
         const val EXTRA_RENDER_SCALE = "render_scale"
         const val RESULT_FILE = "result.json"
         const val ACTION_PARSE_DONE = "com.example.composeapp.PARSE_DONE"
 
-        fun start(context: Context, pdfPath: String) {
+        fun start(context: Context, pdfPath: String, sourceName: String = "") {
             val intent = Intent(context, ScheduleParseService::class.java)
                 .putExtra(EXTRA_PDF_PATH, pdfPath)
+                .putExtra(EXTRA_SOURCE_NAME, sourceName)
             ContextCompat.startForegroundService(context, intent)
         }
 

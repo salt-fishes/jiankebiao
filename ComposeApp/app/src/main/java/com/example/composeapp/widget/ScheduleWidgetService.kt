@@ -16,14 +16,20 @@ class ScheduleWidgetService : RemoteViewsService() {
 
     companion object {
         const val EXTRA_COMPACT_ITEMS = "compact_items"
+        const val EXTRA_TIMETABLE_ID = "timetable_id"   // 0 = 跟随活动课表
     }
 
     override fun onGetViewFactory(intent: Intent?): RemoteViewsFactory =
-        Factory(applicationContext, intent?.getBooleanExtra(EXTRA_COMPACT_ITEMS, false) ?: false)
+        Factory(
+            applicationContext,
+            intent?.getBooleanExtra(EXTRA_COMPACT_ITEMS, false) ?: false,
+            intent?.getLongExtra(EXTRA_TIMETABLE_ID, 0L) ?: 0L,
+        )
 
     private class Factory(
         private val context: Context,
         private val compact: Boolean,
+        private val timetableId: Long,
     ) : RemoteViewsFactory {
 
         private var rows: List<WidgetRow> = emptyList()
@@ -32,7 +38,9 @@ class ScheduleWidgetService : RemoteViewsService() {
 
         override fun onDataSetChanged() {
             rows = runBlocking {
-                runCatching { ScheduleWidgetProvider.loadRows(context).second }.getOrDefault(emptyList())
+                val tid = if (timetableId > 0) timetableId
+                else ScheduleWidgetProvider.resolveActiveTimetableId(context)
+                runCatching { ScheduleWidgetProvider.loadRows(context, tid).second }.getOrDefault(emptyList())
             }
         }
 

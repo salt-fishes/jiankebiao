@@ -71,6 +71,8 @@ fun MineScreen(
     onSetDynamicColor: (Boolean) -> Unit,
     onSetDarkMode: (String) -> Unit,
     onOpenSectionTimes: () -> Unit,
+    onOpenTimetableManage: () -> Unit = {},
+    onOpenWidgetBind: () -> Unit = {},
     onSetRemindEnabled: (Boolean) -> Unit,
     onSetRemindMinutes: (Int) -> Unit,
     onSendTestReminder: () -> Unit,
@@ -328,6 +330,21 @@ fun MineScreen(
         }
 
         SectionHeader("课表数据")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onOpenTimetableManage,
+                enabled = !parsing,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("课表管理")
+            }
+            Button(
+                onClick = onOpenWidgetBind,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("桌面小组件")
+            }
+        }
         Button(onClick = onPickPdf, enabled = !parsing, modifier = Modifier.fillMaxWidth()) {
             Text(if (parsing) "解析中…" else "导入课表文件（PDF / Excel）")
         }
@@ -338,14 +355,14 @@ fun MineScreen(
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         Text(
-            "已导入 $courseCount 门课程 · $entryCount 条排课",
+            "当前《${settings.timetableName.ifBlank { "我的课表" }}》：$courseCount 门课程 · $entryCount 条排课",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         SectionHeader("数据")
         TextButton(onClick = { showClearConfirm = true }) {
-            Text("清除课表数据", color = MaterialTheme.colorScheme.error)
+            Text("清除当前课表", color = MaterialTheme.colorScheme.error)
         }
 
         SectionHeader("关于")
@@ -405,8 +422,8 @@ fun MineScreen(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("清除课表数据") },
-            text = { Text("将删除所有课程与排课记录，此操作不可恢复。") },
+            title = { Text("清除当前课表") },
+            text = { Text("将删除《${settings.timetableName.ifBlank { "我的课表" }}》的全部课程与排课（其他课表不受影响），此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
                     onClearData()

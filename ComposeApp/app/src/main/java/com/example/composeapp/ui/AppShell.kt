@@ -52,14 +52,25 @@ import com.example.composeapp.data.EntryWithCourse
 import com.example.composeapp.data.ScheduleRepository
 import com.example.composeapp.data.ScheduleSettings
 import com.example.composeapp.data.SettingsRepository
+import com.example.composeapp.data.TimetableEntity
 import com.example.composeapp.reminder.AppRefresh
 import com.example.composeapp.schedule.ParsedSchedule
 import com.example.composeapp.ui.mine.MineScreen
+import com.example.composeapp.ui.timetable.NewTimetableDialog
+import com.example.composeapp.ui.timetable.ImportChooseDialog
+import com.example.composeapp.ui.timetable.ImportTarget
+import com.example.composeapp.ui.timetable.TimetableInfo
+import com.example.composeapp.ui.timetable.TimetableManagePage
+import com.example.composeapp.ui.timetable.TimetableScreen
+import com.example.composeapp.ui.timetable.WidgetBindPage
 import com.example.composeapp.ui.timetable.CourseDetailSheet
 import com.example.composeapp.ui.timetable.TimetableScreen
 import com.example.composeapp.ui.today.TodayScreen
+import com.example.composeapp.widget.ScheduleWidgetCompactProvider
+import com.example.composeapp.widget.ScheduleWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -74,6 +85,7 @@ private val IMPORT_MIMES = arrayOf(
 )
 
 /** 应用外壳：底部导航三页 + 解析流程 + 全局状态。 */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun AppRoot() {
     val context = LocalContext.current
@@ -82,8 +94,20 @@ fun AppRoot() {
     val scheduleRepo = remember { ScheduleRepository.getInstance(context) }
 
     val settings by settingsRepo.settings.collectAsState(initial = defaultSettings())
-    val entries by scheduleRepo.observeAllEntries().collectAsState(initial = emptyList())
-    val courses by scheduleRepo.observeCourses().collectAsState(initial = emptyList())
+    // 多课表：条目/课程按活动课表作用域，切换活动课表自动换数据源
+    val entries by settingsRepo.activeTimetableIdFlow
+        .flatMapLatest { scheduleRepo.observeAllEntries(it) }
+        .collectAsState(initial = emptyList())
+    val courses by settingsRepo.activeTimetableIdFlow
+        .flatMapLatest { scheduleRepo.observeCourses(it) }
+        .collectAsState(initial = emptyList())
+    val timetables by scheduleRepo.observeTimetables().collectAsState(initial = emptyList())
+    val courseCounts by scheduleRepo.observeCourseCounts().collectAsState(initial = emptyList())
+    val timetableInfos = remember(timetables, courseCounts) {
+        timetables.map { t ->
+            TimetableInfo(t, courseCounts.firstOrNull { it.timetableId == t.id }?.courseCount ?: 0)
+        }
+    }
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var parsing by rememberSaveable { mutableStateOf(false) }
@@ -94,6 +118,10 @@ fun AppRoot() {
     var showSectionTimes by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
+    var showTimetableManage by rememberSaveable { mutableStateOf(false) }
+    var showWidgetBind by rememberSaveable { mutableStateOf(false) }
+    var widgetBindRefresh by remember { mutableIntStateOf(0) }
+    var pendingImport by remember { mutableStateOf<ParsedSchedule?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val showSnackbar: (String) -> Unit = { msg ->
@@ -103,15 +131,17 @@ fun AppRoot() {
     }
 
     // ---- 设置动作 ----
-    val setSemesterStart: (java.time.LocalDate) -> Unit = {
-        settingsRepo.setSemesterStart(it)
-        AppRefresh.onDataChanged(context)  // 周次变化影响小组件与提醒排程
+    val setSemesterStart: (java.time.LocalDate) -> Unit = { date ->
+        scope.launch {
+            settingsRepo.setSemesterStart(date)  // 写库完成后再刷新，避免小组件读到旧日期
+            AppRefresh.onDataChanged(context)
+        }
     }
 
-    fun startParse(pdfPath: String) {
+    fun startParse(pdfPath: String, sourceName: String = "") {
         parsing = true
         parseError = null
-        ScheduleParseService.start(context, pdfPath)
+        ScheduleParseService.start(context, pdfPath, sourceName)
     }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -140,10 +170,11 @@ fun AppRoot() {
                                 input.copyTo(out)
                             }
                         } ?: throw IllegalStateException("无法读取文件")
-                        importFile
+                        // 保留原始文件名（自动命名课表用："张三(2026-2027-1)课表" → "张三的课表"）
+                        importFile to name
                     }
-                }.onSuccess { importFile ->
-                    startParse(importFile.absolutePath)
+                }.onSuccess { (importFile, sourceName) ->
+                    startParse(importFile.absolutePath, sourceName)
                 }.onFailure { e ->
                     parsing = false
                     parseError = e.message ?: "无法读取文件"
@@ -175,18 +206,23 @@ fun AppRoot() {
         }
     }
 
-    // ---- 启动逻辑：仅测试驱动（adb 传入 pdf_path）触发解析；课表数据一律由用户导入 ----
+    // ---- 启动逻辑：回填默认课表（升级迁移）→ 重排提醒；adb 测试驱动解析保留 ----
     LaunchedEffect(Unit) {
         val activity = context as? android.app.Activity
         val intentPdf = activity?.intent?.getStringExtra(ScheduleParseService.EXTRA_PDF_PATH)
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            settingsRepo.ensureActiveTimetableReady()
+        }
         if (intentPdf != null) startParse(intentPdf)
-        // 应用更新/覆盖安装会清掉 AlarmManager 闹钟：每次启动重排一次课前提醒
+        // 应用更新/覆盖安装会清掉 AlarmManager 闹钟：每次启动重排一次课前提醒；
+        // 同时强刷一次小组件（防升级后残留旧渲染数据）
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             com.example.composeapp.reminder.ClassReminderScheduler.reschedule(context)
+            com.example.composeapp.widget.ScheduleWidgetProvider.requestUpdate(context)
         }
     }
 
-    // ---- 解析完成广播 ----
+    // ---- 解析完成广播：弹出导入选择（新建课表 / 覆盖现有），确认后才入库 ----
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -195,11 +231,11 @@ fun AppRoot() {
                 ParsedSchedule.fromJson(rf.readText()).fold(
                     onSuccess = { parsed ->
                         parseError = null
-                        AppRefresh.onDataChanged(context)  // 新课表入库：刷新小组件 + 重排提醒
-                        showSnackbar(
-                            if (parsed.courses.isEmpty()) "未识别到课程，请检查文件格式"
-                            else "导入完成：${parsed.courses.size} 门课程，建议检查课表"
-                        )
+                        if (parsed.courses.isEmpty()) {
+                            showSnackbar("未识别到课程，请检查文件格式")
+                        } else {
+                            pendingImport = parsed
+                        }
                     },
                     onFailure = { e -> parseError = e.message ?: "解析失败" },
                 )
@@ -213,6 +249,117 @@ fun AppRoot() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
+    // ---- 新建课表：弹窗选来源（导入文件 / 复制现有），名字可留空稍后设置 ----
+    // saveable：选文件期间 Activity 可能被系统回收重建，这两个 id 丢了会导致导入目标错乱
+    var showNewTimetableDialog by rememberSaveable { mutableStateOf(false) }
+    var autoCreatedTimetableId by rememberSaveable { mutableStateOf(0L) }
+    var pendingAutoName by rememberSaveable { mutableStateOf("") }
+    val confirmNewTimetable: (String, Long?) -> Unit = { name, copyFrom ->
+        showNewTimetableDialog = false
+        showTimetableManage = false
+        if (copyFrom != null) {
+            // 复制现有课表：结构原样复制，周次重置整学期
+            scope.launch {
+                val result = runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        val src = scheduleRepo.getTimetable(copyFrom)
+                            ?: throw IllegalStateException("源课表不存在")
+                        scheduleRepo.copyTimetable(
+                            src, name.ifBlank { "未命名" }, src.startMillis, src.totalWeeks,
+                        )
+                    }
+                }
+                result.onSuccess { id ->
+                    settingsRepo.setActiveTimetable(id)
+                    AppRefresh.onDataChanged(context)
+                    showSnackbar("已创建《${name.ifBlank { "未命名" }}》")
+                }.onFailure { e ->
+                    showSnackbar("创建失败：${e.message ?: "未知错误"}")
+                }
+            }
+        } else {
+            // 导入文件：自动建表 → 选文件 → 解析 → 导入弹窗内命名
+            scope.launch {
+                val id = runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        scheduleRepo.createTimetable(
+                            name.ifBlank { "未命名" },
+                            settings.semesterStart,
+                            settings.totalWeeks,
+                        )
+                    }
+                }.getOrNull()
+                if (id != null) {
+                    pendingAutoName = name
+                    autoCreatedTimetableId = id
+                    settingsRepo.setActiveTimetable(id)
+                    AppRefresh.onDataChanged(context)
+                    filePicker.launch(IMPORT_MIMES)
+                } else {
+                    showSnackbar("创建失败")
+                }
+            }
+        }
+    }
+
+    // ---- 导入确认：新建课表（自动命名/开学日）或覆盖指定课表 ----
+    // parsed 由调用方传入（弹窗宿主在调用前已清 pendingImport，不能再回头读状态）
+    val confirmImport: (ParsedSchedule, ImportTarget) -> Unit = { parsed, target ->
+        scope.launch {
+            runCatching {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    when (target) {
+                        is ImportTarget.NewTimetable -> {
+                            val id = scheduleRepo.createTimetable(
+                                target.name,
+                                target.startMillis,
+                                target.totalWeeks,
+                            )
+                            scheduleRepo.importSchedule(parsed, id)
+                            settingsRepo.setActiveTimetable(id)
+                            id
+                        }
+                        is ImportTarget.IntoCreated -> {
+                            scheduleRepo.importSchedule(parsed, target.timetableId)
+                            // 自动新建的课表：把弹窗里的命名与日期落库
+                            scheduleRepo.getTimetable(target.timetableId)?.let { tt ->
+                                scheduleRepo.updateTimetable(
+                                    tt.copy(
+                                        name = target.name,
+                                        startMillis = target.startMillis,
+                                        totalWeeks = target.totalWeeks,
+                                    )
+                                )
+                            }
+                            target.timetableId
+                        }
+                        is ImportTarget.Existing -> {
+                            scheduleRepo.importSchedule(parsed, target.timetableId)
+                            target.timetableId
+                        }
+                    }
+                }
+            }.onSuccess { id ->
+                AppRefresh.onDataChanged(context)  // 入库：刷新小组件 + 重排提醒
+                val name = when (target) {
+                    is ImportTarget.NewTimetable -> target.name
+                    is ImportTarget.IntoCreated -> target.name
+                    is ImportTarget.Existing ->
+                        timetableInfos.firstOrNull { it.timetable.id == id }?.timetable?.name ?: ""
+                }
+                android.util.Log.i(
+                    "ScheduleImport",
+                    "导入成功 target=$id name=$name courses=${parsed.courses.size} entries=${parsed.entries.size}",
+                )
+                showSnackbar("已导入到《$name》：${parsed.courses.size} 门课程，建议检查课表")
+            }.onFailure { e ->
+                android.util.Log.w("ScheduleImport", "导入失败 target=$target", e)
+                parseError = "导入失败：${e.message ?: "未知错误"}"
+                showSnackbar("导入失败：${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
     // ---- 解析看门狗：长时间未收到完成广播则复位，避免界面停留在"解析中" ----
     LaunchedEffect(parsing) {
         if (parsing) {
@@ -221,6 +368,19 @@ fun AppRoot() {
                 parsing = false
                 parseError = "解析超时，请重新导入"
             }
+        }
+    }
+
+    // ---- 系统手势/按键返回：覆盖页显示时返回先关闭覆盖页，回到原界面原位置 ----
+    val overlayShown = showSectionTimes || showAbout || showPrivacy ||
+        showTimetableManage || showWidgetBind
+    androidx.activity.compose.BackHandler(enabled = overlayShown) {
+        when {
+            showSectionTimes -> showSectionTimes = false
+            showTimetableManage -> showTimetableManage = false
+            showWidgetBind -> showWidgetBind = false
+            showAbout -> showAbout = false
+            showPrivacy -> showPrivacy = false
         }
     }
 
@@ -237,8 +397,6 @@ fun AppRoot() {
     ) {
         // 实验性：自定义背景层包裹整个 Scaffold（含底栏），玻璃风格随开关生效
         val glassOn = settings.customBgEnabled
-        // 全屏覆盖页（作息/关于/隐私）显示期间不组合主页面，避免透底重叠
-        val overlayShown = showSectionTimes || showAbout || showPrivacy
         com.example.composeapp.ui.theme.CustomBackgroundLayer(
             enabled = glassOn,
             imagePath = settings.customBgPath,
@@ -338,6 +496,15 @@ fun AppRoot() {
                             }
                         }
                     },
+                    timetables = timetableInfos,
+                    onSwitchTimetable = { id ->
+                        settingsRepo.setActiveTimetable(id)
+                        AppRefresh.onDataChanged(context)
+                        val name = timetableInfos.firstOrNull { it.timetable.id == id }?.timetable?.name ?: ""
+                        showSnackbar("已切换到《$name》")
+                    },
+                    onNewTimetable = { showNewTimetableDialog = true },
+                    onOpenManage = { showTimetableManage = true },
                 )
                 1 -> TodayScreen(
                     entries = entries,
@@ -354,8 +521,10 @@ fun AppRoot() {
                     onPickPdf = { filePicker.launch(IMPORT_MIMES) },
                     onSetSemesterStart = setSemesterStart,
                     onSetTotalWeeks = {
-                        settingsRepo.setTotalWeeks(it)
-                        AppRefresh.onDataChanged(context)
+                        scope.launch {
+                            settingsRepo.setTotalWeeks(it)
+                            AppRefresh.onDataChanged(context)
+                        }
                     },
                     onSetShowWeekend = {
                         settingsRepo.setShowWeekend(it)
@@ -395,19 +564,148 @@ fun AppRoot() {
                     onSetCustomBgBlur = { settingsRepo.setCustomBgBlur(it) },
                     onClearData = {
                         scope.launch {
+                            val affected = timetableInfos
+                                .firstOrNull { it.timetable.id == settings.timetableId }
                             kotlinx.coroutines.withContext(Dispatchers.IO) {
-                                scheduleRepo.clearAll()
+                                scheduleRepo.clearTimetable(settings.timetableId)
                             }
                             File(context.filesDir, ScheduleParseService.RESULT_FILE).delete()
                             AppRefresh.onDataChanged(context)
+                            showSnackbar("已清除《${affected?.timetable?.name ?: "当前课表"}》")
                         }
                     },
                     onShowSnackbar = showSnackbar,
                     onOpenAbout = { showAbout = true },
                     onOpenPrivacy = { showPrivacy = true },
+                    onOpenTimetableManage = { showTimetableManage = true },
+                    onOpenWidgetBind = { widgetBindRefresh++; showWidgetBind = true },
                 )
              }
         }
+    }
+
+    // ---- 课表管理页（全屏覆盖；玻璃模式下透出背景） ----
+    if (showTimetableManage) {
+        com.example.composeapp.ui.timetable.TimetableManagePage(
+            timetables = timetableInfos,
+            activeId = settings.timetableId,
+            glass = glassOn,
+            onSwitch = { t ->
+                settingsRepo.setActiveTimetable(t.id)
+                AppRefresh.onDataChanged(context)
+                showSnackbar("已切换到《${t.name}》")
+            },
+            onUpdate = { t ->
+                scope.launch {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        scheduleRepo.updateTimetable(t)
+                    }
+                    AppRefresh.onDataChanged(context)
+                    showSnackbar("已保存")
+                }
+            },
+            onEditSchedule = { t ->
+                // 切到该课表后进入作息编辑（作息页编辑的是活动课表）
+                settingsRepo.setActiveTimetable(t.id)
+                AppRefresh.onDataChanged(context)
+                showTimetableManage = false
+                showSectionTimes = true
+                showSnackbar("已切换到《${t.name}》，请调整作息时间")
+            },
+            onCopy = { t ->
+                scope.launch {
+                    val result = runCatching {
+                        kotlinx.coroutines.withContext(Dispatchers.IO) {
+                            scheduleRepo.copyTimetable(
+                                t, "${t.name} 副本", t.startMillis, t.totalWeeks,
+                            )
+                        }
+                    }
+                    result.onSuccess {
+                        AppRefresh.onDataChanged(context)
+                        showSnackbar("已复制为《${t.name} 副本》")
+                    }.onFailure { e ->
+                        showSnackbar("复制失败：${e.message ?: "未知错误"}")
+                    }
+                }
+            },
+            onDelete = { t ->
+                scope.launch {
+                    val result = runCatching {
+                        kotlinx.coroutines.withContext(Dispatchers.IO) {
+                            scheduleRepo.deleteTimetable(t.id, settings.timetableId)
+                        }
+                    }
+                    result.onSuccess {
+                        AppRefresh.onDataChanged(context)
+                        showSnackbar("已删除《${t.name}》")
+                    }.onFailure { e ->
+                        showSnackbar(e.message ?: "删除失败")
+                    }
+                }
+            },
+            onCreate = {
+                showTimetableManage = false
+                showNewTimetableDialog = true
+            },
+            onBack = { showTimetableManage = false },
+        )
+    }
+
+    // ---- 小组件绑定页（全屏覆盖） ----
+    if (showWidgetBind) {
+        val widgetInstances = remember(showWidgetBind, widgetBindRefresh) {
+            queryWidgetInstances(context)
+        }
+        val bindings = remember(widgetInstances, widgetBindRefresh) {
+            widgetInstances.associate { it.widgetId to settingsRepo.getWidgetTimetableId(it.widgetId) }
+        }
+        com.example.composeapp.ui.timetable.WidgetBindPage(
+            widgets = widgetInstances,
+            timetables = timetableInfos,
+            bindings = bindings,
+            glass = glassOn,
+            onBind = { widgetId, ttId ->
+                settingsRepo.setWidgetTimetableId(widgetId, ttId)
+                widgetBindRefresh++
+                AppRefresh.onDataChanged(context)
+            },
+            onBack = { showWidgetBind = false },
+        )
+    }
+
+    // ---- 新建课表弹窗 / 导入选择弹窗 ----
+    if (showNewTimetableDialog) {
+        NewTimetableDialog(
+            timetables = timetableInfos,
+            onConfirm = confirmNewTimetable,
+            onDismiss = { showNewTimetableDialog = false },
+        )
+    }
+    pendingImport?.let { parsed ->
+        val preset = timetableInfos.firstOrNull { it.timetable.id == autoCreatedTimetableId }
+        ImportChooseDialog(
+            parsedName = parsed.suggestedName,
+            suggestedStartMillis = parsed.suggestedStartMillis,
+            suggestedTotalWeeks = parsed.suggestedTotalWeeks,
+            timetables = timetableInfos,
+            defaultStartMillis = settings.semesterStart,
+            defaultTotalWeeks = settings.totalWeeks,
+            presetTarget = preset,
+            presetName = pendingAutoName,
+            onConfirm = { target ->
+                val p = pendingImport
+                pendingImport = null
+                autoCreatedTimetableId = 0L
+                pendingAutoName = ""
+                if (p != null) confirmImport(p, target)
+            },
+            onDismiss = {
+                pendingImport = null
+                autoCreatedTimetableId = 0L
+                pendingAutoName = ""
+            },
+        )
     }
 
     // ---- 作息时间独立页（全屏覆盖，含系统返回键处理；玻璃模式下透出背景） ----
@@ -416,10 +714,17 @@ fun AppRoot() {
             settings = settings,
             glass = glassOn,
             onSetSectionTimes = {
-                settingsRepo.setSectionTimes(it)
-                AppRefresh.onDataChanged(context)  // 作息变化影响提醒触发时刻
+                scope.launch {
+                    settingsRepo.setSectionTimes(it)
+                    AppRefresh.onDataChanged(context)  // 作息变化影响提醒触发时刻
+                }
             },
-            onSetSectionsPerDay = { settingsRepo.setSectionsPerDay(it) },
+            onSetSectionsPerDay = {
+                scope.launch {
+                    settingsRepo.setSectionsPerDay(it)
+                    AppRefresh.onDataChanged(context)
+                }
+            },
             onBack = { showSectionTimes = false },
         )
     }
@@ -427,7 +732,7 @@ fun AppRoot() {
     // ---- 关于页 / 隐私政策页（全屏覆盖；玻璃模式下透出背景） ----
     if (showAbout) {
             com.example.composeapp.ui.mine.AboutPage(
-                versionName = "1.4",
+                versionName = "1.5",
             glass = glassOn,
             onBack = { showAbout = false },
         )
@@ -501,6 +806,7 @@ fun AppRoot() {
                     runCatching {
                         kotlinx.coroutines.withContext(Dispatchers.IO) {
                             scheduleRepo.addEntry(
+                                settings.timetableId,
                                 name, teacher,
                                 campus = "", building = "", room = location,
                                 day, s, e, weeks,
@@ -518,6 +824,18 @@ fun AppRoot() {
             onDismiss = { showAddCourse = false },
         )
     }
+    }
+}
+
+/** 枚举桌面上的简课表小组件实例（3×2 / 2×2）。 */
+private fun queryWidgetInstances(context: Context): List<com.example.composeapp.ui.timetable.WidgetInstanceInfo> {
+    val mgr = android.appwidget.AppWidgetManager.getInstance(context)
+    val standard = android.content.ComponentName(context, ScheduleWidgetProvider::class.java)
+    val compact = android.content.ComponentName(context, ScheduleWidgetCompactProvider::class.java)
+    return mgr.getAppWidgetIds(standard).map {
+        com.example.composeapp.ui.timetable.WidgetInstanceInfo(it, compact = false)
+    } + mgr.getAppWidgetIds(compact).map {
+        com.example.composeapp.ui.timetable.WidgetInstanceInfo(it, compact = true)
     }
 }
 

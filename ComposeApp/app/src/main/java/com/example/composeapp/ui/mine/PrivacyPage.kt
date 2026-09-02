@@ -81,10 +81,10 @@ fun PrivacyPage(
 
             Spacer(Modifier.height(16.dp))
             PrivacySection("一、我们收集哪些信息", "我们不收集任何信息。本应用无需注册、无需登录、无需账号，也不申请网络、位置、通讯录、存储等任何敏感权限。", glass)
-            PrivacySection("二、课表数据存放在哪里", "课表 PDF 及解析后的课程数据仅存储在您手机的本地存储中（应用私有目录），卸载应用后数据随之删除。", glass)
-            PrivacySection("三、是否会上传或共享数据", "不会。应用内没有任何联网功能，代码中未申请 android.permission.INTERNET 权限，因此不存在数据上传、广告 SDK 或第三方统计。", glass)
-            PrivacySection("四、OCR 识别如何处理", "PDF 课表识别（OCR）在手机本地完成，使用内置模型，不需要网络，也不会将课表图片或文字发送到任何服务器。", glass)
-            PrivacySection("五、权限说明", "应用仅在导入课表时使用系统文件选择器读取您主动选择的 PDF 文件，申请通知权限用于显示解析进度与上课提醒，不涉及其他权限。", glass)
+            PrivacySection("二、课表数据存放在哪里", "课表文件及解析后的课程数据仅存储在您手机的本地存储中（应用私有目录），卸载应用后数据随之删除。", glass)
+            PrivacySection("三、是否会上传或共享数据", "不会。应用内没有任何联网功能，代码中未申请 android.permission.INTERNET 权限，因此不存在数据上传、广告 SDK 或第三方统计。唯一的对外数据出口是：您主动点击「分享」时，应用将生成的课表图片交由系统分享面板中您选择的应用处理。", glass)
+            PrivacySection("四、OCR 识别如何处理", "课表识别全部在手机本地完成：个人课表 PDF 使用内置 OCR 模型，班级课表 Excel 直接解析文本，均不需要网络，也不会将课表内容发送到任何服务器。", glass)
+            PrivacySection("五、权限说明", "应用仅在导入课表时使用系统文件选择器读取您主动选择的 PDF / Excel 文件，申请通知权限用于显示解析进度与上课提醒，不涉及位置、通讯录、存储等其他权限。", glass)
             PrivacySection("六、联系我们", "如您对本隐私政策有任何疑问，请联系：xunguang255@163.com", glass)
             PrivacySection("七、政策更新", "本政策如有更新，将在应用内「关于」页面展示最新版本。更新日期：2026-08-24", glass)
 

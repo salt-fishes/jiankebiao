@@ -27,8 +27,8 @@ android {
         applicationId = "com.example.composeapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {
@@ -70,6 +70,11 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+ksp {
+    // Room schema 导出：schema JSON 入库，配合 MigrationTestHelper 做迁移测试
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

@@ -33,10 +33,14 @@ data class ParsedEntry(
     val teacher: String = "",  // 教师（随条目）
 )
 
-/** 整个 PDF 的解析结果。 */
+/** 整个文件的解析结果。 */
 data class ParsedSchedule(
     val courses: List<ParsedCourse>,
     val entries: List<ParsedEntry>,
+    // ---- 导入元数据（多课表）：来源建议的课表名与学期信息，均可为空 ----
+    val suggestedName: String = "",          // 如 "26智能1课表"（Excel 表头）/ "张三的课表"（PDF 文件名）
+    val suggestedStartMillis: Long = 0L,     // 注释行解析出的开学日；0 = 未知
+    val suggestedTotalWeeks: Int = 0,        // 注释行解析出的总周数；0 = 未知
 ) {
     /** 序列化为 JSON（用于跨进程/界面恢复）。 */
     fun toJson(): String = org.json.JSONObject().apply {
@@ -62,6 +66,9 @@ data class ParsedSchedule(
                 })
             }
         })
+        put("suggestedName", suggestedName)
+        put("suggestedStartMillis", suggestedStartMillis)
+        put("suggestedTotalWeeks", suggestedTotalWeeks)
     }.toString()
 
     companion object {
@@ -105,7 +112,12 @@ data class ParsedSchedule(
                     )
                 }
             }
-            ParsedSchedule(courses, entries)
+            ParsedSchedule(
+                courses, entries,
+                suggestedName = root.optString("suggestedName", ""),
+                suggestedStartMillis = if (root.has("suggestedStartMillis")) root.getLong("suggestedStartMillis") else 0L,
+                suggestedTotalWeeks = if (root.has("suggestedTotalWeeks")) root.getInt("suggestedTotalWeeks") else 0,
+            )
         }
     }
 }

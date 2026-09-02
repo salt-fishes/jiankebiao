@@ -1,6 +1,8 @@
 package com.example.composeapp.ui.timetable
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -21,16 +23,20 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,11 +47,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,6 +65,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,13 +80,17 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.composeapp.data.EntryWithCourse
+import com.example.composeapp.data.ScheduleRepository
 import com.example.composeapp.data.ScheduleSettings
 import com.example.composeapp.data.SectionTime
+import com.example.composeapp.data.SettingsRepository
 import com.example.composeapp.data.TimeUtils
 import com.example.composeapp.data.WeekCalculator
 import com.example.composeapp.ui.theme.courseBlockColors
 import com.example.composeapp.ui.theme.courseBlockColorsDynamic
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import kotlin.math.roundToInt
 import java.time.LocalTime
@@ -108,6 +122,10 @@ fun TimetableScreen(
     onImportClick: () -> Unit = {},
     onAddClick: () -> Unit = {},
     onMoveEntry: (EntryWithCourse, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    timetables: List<TimetableInfo> = emptyList(),
+    onSwitchTimetable: (Long) -> Unit = {},
+    onNewTimetable: () -> Unit = {},   // 自动新建未命名课表并进入导入流程
+    onOpenManage: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val today = remember { LocalDate.now() }
@@ -126,6 +144,12 @@ fun TimetableScreen(
     val pagerState = rememberPagerState(
         initialPage = (currentWeek - 1).coerceIn(0, totalWeeks - 1)
     ) { totalWeeks }
+    // 切换课表后：按新课表的开学时间重新定位周次（未开学则停在第 1 页，标题显示"未开学"）
+    LaunchedEffect(settings.timetableId) {
+        val w = WeekCalculator.currentWeek(semesterStart, today)
+            .coerceIn(1, totalWeeks)
+        pagerState.scrollToPage(w - 1)
+    }
     val selectedWeek = pagerState.currentPage + 1
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -271,6 +295,20 @@ fun TimetableScreen(
                                 modifier = Modifier.padding(top = 1.dp),
                             )
                         }
+                    } else if (rawCurrentWeek < 1) {
+                        // 开学前：不显示周数（未开学），避免与真实第一周混淆
+                        Text(
+                            "未开学",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "开学日：${semesterStart?.let { "${it.monthValue}月${it.dayOfMonth}日" } ?: "未设置"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 1.dp),
+                        )
                     } else {
                         Text(
                             "第 $selectedWeek 周",
@@ -307,6 +345,7 @@ fun TimetableScreen(
                                     visibleDays = visibleDays,
                                     maxSection = maxSection,
                                     showNonCurrentWeek = settings.showNonCurrentWeek,
+                                    timetableName = settings.timetableName,
                                 )
                                 TimetableShare.share(context, bmp, selectedWeek)
                             }
@@ -337,11 +376,12 @@ fun TimetableScreen(
                     )
                 }
                 IconButton(onClick = {
-                    scope.launch { pagerState.animateScrollToPage(currentWeek - 1) }
+                    // 周数滑杆 + 课表切换面板（原"回到本周"职能并入面板）
+                    showWeekPicker = true
                 }) {
                     Icon(
                         Icons.Filled.DateRange,
-                        contentDescription = "回到本周",
+                        contentDescription = "周数与课表",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -424,36 +464,154 @@ fun TimetableScreen(
 
     if (showWeekPicker) {
         ModalBottomSheet(onDismissRequest = { showWeekPicker = false }) {
-            Text(
-                "选择周次",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-                    .heightIn(max = 420.dp)
-                    .padding(bottom = 24.dp),
+            // ---- 周数：滑杆 + 回到本周 ----
+            var panelWeek by remember(selectedWeek) { mutableStateOf(selectedWeek.toFloat()) }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items((1..totalWeeks).toList()) { w ->
-                    FilterChip(
-                        selected = w == selectedWeek,
+                Text("周数", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    scope.launch { pagerState.animateScrollToPage(currentWeek - 1) }
+                    showWeekPicker = false
+                }) { Text("回到本周") }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Slider(
+                    value = panelWeek,
+                    onValueChange = { panelWeek = it },
+                    onValueChangeFinished = {
+                        scope.launch { pagerState.scrollToPage(panelWeek.toInt() - 1) }
+                    },
+                    valueRange = 1f..totalWeeks.toFloat(),
+                    steps = (totalWeeks - 2).coerceAtLeast(0),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${panelWeek.toInt()}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---- 课表：卡片切换 + 新建/管理 ----
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("课表", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    showWeekPicker = false
+                    onNewTimetable()
+                }) { Text("新建课表") }
+                TextButton(onClick = {
+                    showWeekPicker = false
+                    onOpenManage()
+                }) { Text("管理") }
+            }
+            LazyRow(
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(bottom = 24.dp),
+            ) {
+                items(timetables, key = { it.timetable.id }) { info ->
+                    TimetableCard(
+                        info = info,
+                        active = info.timetable.id == settings.timetableId,
+                        maxSection = maxSection,
                         onClick = {
-                            scope.launch { pagerState.scrollToPage(w - 1) }
+                            onSwitchTimetable(info.timetable.id)
                             showWeekPicker = false
                         },
-                        label = {
-                            Text(
-                                "$w",
-                                fontWeight = if (w == currentWeek) FontWeight.Bold else FontWeight.Normal,
-                            )
-                        },
-                        modifier = Modifier.padding(4.dp),
                     )
                 }
             }
         }
+    }
+}
+
+/** 课表切换卡片：迷你课表缩略图（异步渲染）+ 名称 + 选中勾。 */
+@Composable
+private fun TimetableCard(
+    info: TimetableInfo,
+    active: Boolean,
+    maxSection: Int,
+    onClick: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // 缩略图按课表内容异步渲染（与分享图同源绘制，等比缩小）
+    val thumb by produceState<android.graphics.Bitmap?>(
+        null, info.timetable.id, maxSection,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val entries = ScheduleRepository.getInstance(context).entriesOf(info.timetable.id)
+                val tt = info.timetable
+                val today = LocalDate.now()
+                val startMillis = if (tt.startMillis == 0L) SettingsRepository.DEFAULT_SEMESTER_START_MILLIS else tt.startMillis
+                val startDate = java.time.Instant.ofEpochMilli(startMillis)
+                    .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                val week = WeekCalculator.currentWeek(startDate, today).coerceAtLeast(1)
+                val bmp = TimetableShare.renderWeek(
+                    week = week,
+                    monday = WeekCalculator.mondayOfWeek(startDate, week),
+                    entries = entries,
+                    visibleDays = (1..7).toList(),
+                    maxSection = maxSection,
+                    showNonCurrentWeek = true,
+                )
+                Bitmap.createScaledBitmap(bmp, 220, 264, true)
+                    .also { scaled -> if (scaled != bmp) bmp.recycle() }
+            }.getOrNull()
+        }
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(width = 110.dp, height = 132.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (active) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            thumb?.let { bmp ->
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+            }
+            if (active) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = "使用中",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color(0x66000000), RoundedCornerShape(50))
+                        .padding(4.dp),
+                )
+            }
+        }
+        Text(
+            info.timetable.name,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 

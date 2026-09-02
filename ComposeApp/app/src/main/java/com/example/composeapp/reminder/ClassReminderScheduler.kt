@@ -67,7 +67,8 @@ object ClassReminderScheduler {
     ): UpcomingClass? = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).current
         if (!settings.remindEnabled) return@withContext null
-        val entries = AppDatabase.getInstance(context).scheduleDao().observeAllEntries().first()
+        val entries = AppDatabase.getInstance(context).scheduleDao()
+            .getAllEntries(settings.timetableId)
         val lowerBound = from.minusSeconds(graceSec.coerceAtLeast(0))
 
         var best: UpcomingClass? = null
@@ -122,7 +123,8 @@ object ClassReminderScheduler {
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) return@withContext
         val settings = SettingsRepository.getInstance(context).current
-        val entries = AppDatabase.getInstance(context).scheduleDao().observeAllEntries().first()
+        val entries = AppDatabase.getInstance(context).scheduleDao()
+            .getAllEntries(settings.timetableId)
         val now = LocalDateTime.now()
         var best: UpcomingClass? = null
         var date: LocalDate = now.toLocalDate()

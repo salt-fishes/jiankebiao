@@ -36,6 +36,46 @@ object ScheduleXlsParser {
 
     private fun uncheckedLeaf(v: Int): Byte = v.toByte()
 
+    // ==================== 导入元数据 ====================
+
+    /** 表头前导行里的课表名（如 "26智能1课表"）：包含"课表"且长度合理的单元格。 */
+    private val META_NAME_RE = Regex("^[^/]{1,24}课表$")
+
+    /** 注释行的开学日与总周数："本学期2026-09-14正式上课至2027-01-24结束，共19周"。 */
+    private val META_START_RE = Regex("""本学期(\d{4}-\d{2}-\d{2})正式上课""")
+    private val META_WEEKS_RE = Regex("""共(\d{1,2})周""")
+
+    /** 从网格提取导入元数据（课表名/开学日/总周数），均可能为空。 */
+    private fun extractMeta(grid: Map<Long, String>, headerRow: Int): Triple<String, Long, Int> {
+        var name = ""
+        for (r in 0 until headerRow.coerceAtMost(3)) {
+            for ((k, v) in grid.entries) {
+                if ((k shr 14).toInt() != r) continue
+                val t = v.trim()
+                if (META_NAME_RE.matches(t)) { name = t; break }
+            }
+            if (name.isNotEmpty()) break
+        }
+        var startMillis = 0L
+        var weeks = 0
+        val startRe = META_START_RE
+        val weeksRe = META_WEEKS_RE
+        for ((_, v) in grid.entries) {
+            if (startMillis == 0L) {
+                startRe.find(v)?.let {
+                    runCatching {
+                        val d = java.time.LocalDate.parse(it.groupValues[1])
+                        startMillis = d.atStartOfDay(java.time.ZoneId.systemDefault())
+                            .toInstant().toEpochMilli()
+                    }
+                }
+            }
+            if (weeks == 0) weeksRe.find(v)?.let { weeks = it.groupValues[1].toIntOrNull() ?: 0 }
+            if (startMillis != 0L && weeks != 0) break
+        }
+        return Triple(name, startMillis, weeks)
+    }
+
     // ==================== 表格解析 ====================
 
     /** 单元格 key：row << 14 | col（BIFF8 最多 16384 列）。 */
@@ -214,6 +254,7 @@ object ScheduleXlsParser {
         // 同课同天、周次与地点一致且节次相邻的条目合并回一块
         mergeAdjacentEntries(entries)
 
+        val (suggestedName, suggestedStart, suggestedWeeks) = extractMeta(grid, headerRow)
         val courses = coursesByName.map { (name, a) ->
             ParsedCourse(
                 name = name, type = "", credit = a.credit,
@@ -221,7 +262,12 @@ object ScheduleXlsParser {
                 room = a.room, classNo = "", composition = "",
             )
         }
-        return ParsedSchedule(courses, entries)
+        return ParsedSchedule(
+            courses, entries,
+            suggestedName = suggestedName,
+            suggestedStartMillis = suggestedStart,
+            suggestedTotalWeeks = suggestedWeeks,
+        )
     }
 
     /** 相邻节次条目合并（反复配对直到不动点，覆盖 6-7+8-9、6-7+8+9 等拆分形态）。 */
