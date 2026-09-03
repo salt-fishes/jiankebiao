@@ -19,16 +19,16 @@ val keystoreProps = Properties().apply {
 val hasSigning = keystoreProps.getProperty("storeFile") != null
 
 android {
-    namespace = "com.example.composeapp"
+    namespace = "com.saltfish.simple"
     compileSdk = 35
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId = "com.example.composeapp"
+        applicationId = "com.saltfish.simple"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.7.1"
+        versionCode = 10
+        versionName = "2.0"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {
