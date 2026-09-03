@@ -8,21 +8,27 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -34,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,11 +49,13 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,11 +64,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.composeapp.ui.theme.AppMotion
 import com.example.composeapp.ScheduleParseService
+import com.example.composeapp.data.CalendarSync
 import com.example.composeapp.data.EntryWithCourse
 import com.example.composeapp.data.ScheduleRepository
 import com.example.composeapp.data.ScheduleSettings
@@ -117,9 +133,11 @@ private fun detectImportExt(head: ByteArray): String? {
 }
 
 /** 应用外壳：底部导航三页 + 解析流程 + 全局状态。 */
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-@Composable
-fun AppRoot(
+    @OptIn(
+        kotlinx.coroutines.ExperimentalCoroutinesApi::class,
+        )
+    @Composable
+    fun AppRoot(
     // 系统分享/「用其他应用打开」进来的待导入文件（MainActivity 转发）
     importUris: MutableSharedFlow<Uri> = MutableSharedFlow(),
 ) {
@@ -335,6 +353,88 @@ fun AppRoot(
         }
     }
 
+    // ---- 系统日历：同步课程 / 清空已同步课程（共用一次日历权限申请） ----
+    var calendarAction by remember { mutableStateOf<String?>(null) }
+    var showClearCalendarConfirm by remember { mutableStateOf(false) }
+
+    fun runCalendarSync() {
+        scope.launch {
+            val result = runCatching {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val start = settings.semesterStart.takeIf { it > 0L }
+                        ?.let {
+                            java.time.Instant.ofEpochMilli(it)
+                                .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        }
+                        ?: throw IllegalStateException("请先在上方设置开学时间")
+                    val specs = CalendarSync.buildEventSpecs(
+                        entries = entries,
+                        sectionTimes = settings.sectionTimes,
+                        semesterStart = start,
+                        totalWeeks = settings.totalWeeks,
+                    )
+                    CalendarSync.sync(
+                        context.contentResolver,
+                        specs,
+                        if (settings.remindEnabled) settings.remindMinutesBefore else 0,
+                    )
+                }
+            }
+            result.onSuccess { n ->
+                showSnackbar("已把 $n 节课程写入系统日历「简课表」")
+            }.onFailure { e ->
+                showSnackbar("同步失败：${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    fun runCalendarClear() {
+        scope.launch {
+            val removed = runCatching {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    CalendarSync.clearSyncedEvents(context.contentResolver)
+                }
+            }
+            removed.onSuccess { n ->
+                showSnackbar(if (n > 0) "已从系统日历移除 $n 节课程" else "系统日历里没有可清理的课程")
+            }.onFailure { e ->
+                showSnackbar("清理失败：${e.message ?: "未知错误"}")
+            }
+        }
+    }
+
+    val calendarPerms = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants[android.Manifest.permission.WRITE_CALENDAR] == true &&
+            grants[android.Manifest.permission.READ_CALENDAR] == true
+        when (calendarAction) {
+            "sync" -> if (granted) runCalendarSync()
+            else showSnackbar("需要「日历」权限才能同步，请在弹窗或系统设置中允许")
+            "clear" -> if (granted) runCalendarClear()
+            else showSnackbar("需要「日历」权限才能清理，请在弹窗或系统设置中允许")
+        }
+        calendarAction = null
+    }
+    fun requestCalendarPermission(action: String) {
+        calendarAction = action
+        calendarPerms.launch(
+            arrayOf(
+                android.Manifest.permission.READ_CALENDAR,
+                android.Manifest.permission.WRITE_CALENDAR,
+            )
+        )
+    }
+    val doSyncCalendar: () -> Unit = {
+        if (settings.semesterStart <= 0L) {
+            showSnackbar("请先设置开学时间")
+        } else {
+            requestCalendarPermission("sync")
+        }
+    }
+    val doClearCalendar: () -> Unit = { showClearCalendarConfirm = true }
+
+
     // ---- 启动逻辑：回填默认课表（升级迁移）→ 重排提醒；adb 测试驱动解析保留 ----
     LaunchedEffect(Unit) {
         val activity = context as? android.app.Activity
@@ -531,34 +631,94 @@ fun AppRoot(
             imagePath = settings.customBgPath,
             blurDp = settings.customBgBlurDp,
         ) {
-        if (!overlayShown) Scaffold(
+        // 主界面常驻组合：二级页只是盖在上面，返回时保留滚动位置等全部状态
+        // （原先 if(!overlayShown) 会把整个 Scaffold 拆掉重组，返回即丢位置）；
+        // alpha 跟随动画淡隐，避免生切换底
+        val shellAlpha by animateFloatAsState(
+            targetValue = if (overlayShown) 0f else 1f,
+            animationSpec = AppMotion.effectsFast(),
+            label = "shellAlpha",
+        )
+        Box(Modifier.fillMaxSize()) {
+        Scaffold(
+        modifier = Modifier.fillMaxSize().alpha(shellAlpha),
         containerColor = if (glassOn) androidx.compose.ui.graphics.Color.Transparent
         else MaterialTheme.colorScheme.surface,
         bottomBar = {
             // 迷你底栏：56dp 高，图标 + 选中态胶囊；玻璃模式下半透明 + 顶部细描边
             @Composable fun BottomBarRow() {
-                // 选中胶囊平滑滑移：目标位置按均分槽位计算，胶囊在槽位间连续移动
-                val indicatorIndex by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = tab.toFloat(),
-                    animationSpec = androidx.compose.animation.core.spring(
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                    ),
-                    label = "bottomBarIndicator",
-                )
+                // 胶囊位置以「槽位下标」为单位的连续值：点击/跳转时从当前位置弹簧到目标；
+                // 拖动时直接跟手（dragPx 记录像素偏移），松手从当前位置连续吸附到最近槽位
+                val pillSlot = remember { Animatable(tab.toFloat()) }
+                var dragPx by mutableFloatStateOf(0f)
+                LaunchedEffect(tab) {
+                    pillSlot.animateTo(tab.toFloat(), AppMotion.spatialFast())
+                }
                 BoxWithConstraints(Modifier.fillMaxWidth().height(56.dp)) {
                     val slot = maxWidth / TAB_LABELS.size
-                    val pillOffset = slot * indicatorIndex + (slot - 64.dp) / 2
+                    val slotPx = with(LocalDensity.current) { slot.toPx() }
+                    val pillW = 64.dp
+                    val pillInsetPx = with(LocalDensity.current) { ((slot - pillW) / 2).toPx() }
+                    // 滑移胶囊：绘制在图标层【之下】，仅作视觉指示，不拦截点击；
+                    // CenterStart 对齐后再做横向偏移，否则默认 TopStart 会顶到导航条上沿
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .offset {
+                                IntOffset(
+                                    (slotPx * pillSlot.value + pillInsetPx + dragPx).roundToInt(),
+                                    0,
+                                )
+                            }
+                            .width(pillW)
+                            .height(34.dp)
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                    )
+                    // 图标与胶囊用同一套槽位公式：每槽位宽度 = slot，图标居中，
+                    // 整槽位可点（比 64dp 胶囊点击区域大，且不会互相遮挡）；
+                    // 横向拖动跟手移动胶囊，点击（未过滑动阈值）仍走各槽位的 clickable
                     Row(
-                        Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        // 冻结进行中的弹簧动画，拖动位移基于当前值计算
+                                        scope.launch { pillSlot.stop() }
+                                    },
+                                    onDragEnd = {
+                                        val from = pillSlot.value + dragPx / slotPx
+                                        val target = from.roundToInt()
+                                            .coerceIn(0, TAB_LABELS.lastIndex)
+                                        dragPx = 0f
+                                        scope.launch {
+                                            pillSlot.snapTo(from)
+                                            if (target == tab) {
+                                                pillSlot.animateTo(target.toFloat(), AppMotion.spatialFast())
+                                            }
+                                        }
+                                        tab = target  // 变化时由 LaunchedEffect 弹簧到目标
+                                    },
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    val range = slotPx * (TAB_LABELS.size - 1)
+                                    dragPx = (dragPx + dragAmount).coerceIn(-range, range)
+                                }
+                            }
                     ) {
                         TAB_LABELS.forEachIndexed { i, label ->
+                            // 选中图标轻微放大回弹，Expressive 空间弹簧驱动
+                            val iconScale by animateFloatAsState(
+                                targetValue = if (tab == i) 1.15f else 1f,
+                                animationSpec = AppMotion.spatial(),
+                                label = "tabScale$i",
+                            )
                             Box(
                                 Modifier
-                                    .width(64.dp)
-                                    .height(34.dp),
+                                    .width(slot)
+                                    .fillMaxHeight()
+                                    .clickable { tab = i },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
@@ -570,24 +730,16 @@ fun AppRoot(
                                     contentDescription = label,
                                     tint = if (tab == i) MaterialTheme.colorScheme.onSecondaryContainer
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp),
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .graphicsLayer {
+                                            scaleX = iconScale
+                                            scaleY = iconScale
+                                        },
                                 )
                             }
                         }
                     }
-                    // 滑移胶囊：绘制在图标层之下，点击仍在图标 Box 上（天然在上层）
-                    Box(
-                        Modifier
-                            .offset(x = pillOffset)
-                            .width(64.dp)
-                            .height(34.dp)
-                            .clip(MaterialTheme.shapes.large)
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null,
-                            ) { tab = indicatorIndex.roundToInt() },
-                    )
                 }
             }
             if (glassOn) {
@@ -612,23 +764,23 @@ fun AppRoot(
                 ) { BottomBarRow() }
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {},  // Snackbar 已上移到根 Box 顶层，二级页打开时也能看到提示
     ) { padding ->
-        // Tab 方向性转场：切到右边页从右滑入，切到左边页从左滑入（替代无方向 Crossfade）
+        // Tab 方向性转场：切到右边页从右滑入，切到左边页从左滑入；规格取 Expressive MotionScheme
         androidx.compose.animation.AnimatedContent(
             targetState = tab,
             transitionSpec = {
+                val move = AppMotion.spatial<androidx.compose.ui.unit.IntOffset>()
+                val fade = AppMotion.effectsFast<Float>()
                 if (targetState > initialState) {
-                    (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 6 } +
-                        fadeIn(tween(240)))
+                    (slideInHorizontally(move) { it / 6 } + fadeIn(fade))
                         .togetherWith(
-                            slideOutHorizontally(tween(200)) { -it / 8 } + fadeOut(tween(160))
+                            slideOutHorizontally(move) { -it / 8 } + fadeOut(fade)
                         )
                 } else {
-                    (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 6 } +
-                        fadeIn(tween(240)))
+                    (slideInHorizontally(move) { -it / 6 } + fadeIn(fade))
                         .togetherWith(
-                            slideOutHorizontally(tween(200)) { it / 8 } + fadeOut(tween(160))
+                            slideOutHorizontally(move) { it / 8 } + fadeOut(fade)
                         )
                 }
             },
@@ -726,6 +878,8 @@ fun AppRoot(
                         }
                     },
                     onSetCustomBgBlur = { settingsRepo.setCustomBgBlur(it) },
+                    onSyncCalendar = doSyncCalendar,
+                    onClearCalendar = doClearCalendar,
                     onExportIcs = doExportIcs,
                     onClearData = {
                         scope.launch {
@@ -749,8 +903,10 @@ fun AppRoot(
         }
     }
 
+        // 触摸拦截层已并入 OverlayPage（随进出场动画一同出现/消失）
+
     // ---- 课表管理页（全屏覆盖；玻璃模式下透出背景） ----
-    if (showTimetableManage) {
+    OverlayPage(showTimetableManage) {
         com.example.composeapp.ui.timetable.TimetableManagePage(
             timetables = timetableInfos,
             activeId = settings.timetableId,
@@ -818,7 +974,7 @@ fun AppRoot(
     }
 
     // ---- 小组件绑定页（全屏覆盖） ----
-    if (showWidgetBind) {
+    OverlayPage(showWidgetBind) {
         val widgetInstances = remember(showWidgetBind, widgetBindRefresh) {
             queryWidgetInstances(context)
         }
@@ -873,8 +1029,28 @@ fun AppRoot(
         )
     }
 
+    // ---- 清空系统日历课程：确认弹窗（防误触，只动本应用的「简课表」日历） ----
+    if (showClearCalendarConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearCalendarConfirm = false },
+            title = { Text("清空系统日历中的课程") },
+            text = {
+                Text("将删除系统日历「简课表」里本应用写入的全部课程事件，不会影响你的其他日历与日程。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearCalendarConfirm = false
+                    requestCalendarPermission("clear")
+                }) { Text("清空") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCalendarConfirm = false }) { Text("取消") }
+            },
+        )
+    }
+
     // ---- 作息时间独立页（全屏覆盖，含系统返回键处理；玻璃模式下透出背景） ----
-    if (showSectionTimes) {
+    OverlayPage(showSectionTimes) {
         com.example.composeapp.ui.mine.SectionTimePage(
             settings = settings,
             glass = glassOn,
@@ -895,19 +1071,29 @@ fun AppRoot(
     }
 
     // ---- 关于页 / 隐私政策页（全屏覆盖；玻璃模式下透出背景） ----
-    if (showAbout) {
+    OverlayPage(showAbout) {
             com.example.composeapp.ui.mine.AboutPage(
-                versionName = "1.5",
+                versionName = com.example.composeapp.BuildConfig.VERSION_NAME,
             glass = glassOn,
             onBack = { showAbout = false },
         )
     }
-    if (showPrivacy) {
+    OverlayPage(showPrivacy) {
         com.example.composeapp.ui.mine.PrivacyPage(
             glass = glassOn,
             onBack = { showPrivacy = false },
         )
     }
+
+        // 全局 Snackbar：挂在根 Box 顶层，浮在主界面与所有二级页之上
+        SnackbarHost(
+            snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 72.dp),
+        )
+        }  // Box(fillMaxSize)
     }  // CustomBackgroundLayer
 
     selectedEntry?.let { e ->
@@ -989,6 +1175,44 @@ fun AppRoot(
             onDismiss = { showAddCourse = false },
         )
     }
+    }
+}
+
+/**
+ * 二级覆盖页容器：Expressive 转场（淡入 + 轻微上滑 + 缩放进入，快速淡出退场）。
+ * 内容外罩全屏触摸拦截层——主界面已常驻组合（alpha 0），挡住穿透到课表格子的误触；
+ * 拦截层随动画一同出现/消失，退场期间也不会漏点。
+ */
+@Composable
+private fun OverlayPage(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(AppMotion.effects()) +
+            scaleIn(AppMotion.spatialFast(), initialScale = 0.96f) +
+            slideInVertically(AppMotion.spatialFast()) { it / 16 },
+        exit = fadeOut(AppMotion.effectsFast()) +
+            slideOutVertically(AppMotion.spatialFast()) { it / 16 },
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            // 拦截层必须垫在内容【下方】（兄弟节点而非父布局）：
+            // 作为父布局会在主传递中先于页面滚动消费事件，导致二级页拖不动；
+            // 作为下方兄弟，页面滚动手势优先命中，空白处的点击才落进拦截层，
+            // 不会穿透到 alpha 0 的主界面
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent().changes.forEach { change ->
+                                    if (change.pressed) change.consume()
+                                }
+                            }
+                        }
+                    }
+            )
+            content()
+        }
     }
 }
 

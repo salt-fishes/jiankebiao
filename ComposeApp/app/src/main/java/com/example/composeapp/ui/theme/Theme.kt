@@ -2,6 +2,7 @@ package com.example.composeapp.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -10,6 +11,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColors = lightColorScheme(
@@ -83,6 +85,7 @@ private val DarkColors = darkColorScheme(
 /**
  * MD3 应用主题（seed #333464 TonalSpot）：
  * - 动态取色默认关闭（品牌一致），可在设置中开启（仅 API 31+）
+ * - 动效统一走 AppMotion（Expressive 风格；1.5 稳定后可切官方 MotionScheme）
  */
 @Composable
 fun ComposeAppTheme(
@@ -99,10 +102,15 @@ fun ComposeAppTheme(
         else -> LightColors
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography(),
-        shapes = Shapes(),
-        content = content
-    )
+    // 玻璃模式下 Scaffold/Surface 用透明 containerColor，contentColorFor(Transparent)
+    // 返回未指定，LocalContentColor 会保留默认黑色——暗色模式正文全变黑。
+    // 在主题根部统一提供 onSurface，透明容器内的默认色文字始终跟随当前色系。
+    CompositionLocalProvider(LocalContentColor provides colorScheme.onSurface) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            shapes = Shapes(),
+            typography = Typography(),
+            content = content
+        )
+    }
 }

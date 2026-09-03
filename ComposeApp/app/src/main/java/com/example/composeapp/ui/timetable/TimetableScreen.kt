@@ -89,6 +89,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.composeapp.ui.theme.AppMotion
 import com.example.composeapp.data.EntryWithCourse
 import com.example.composeapp.data.ScheduleRepository
 import com.example.composeapp.data.ScheduleSettings
@@ -120,7 +121,10 @@ internal fun typeSymbol(type: String): String = when (type) {
 }
 
 /** 课表页：第 N 周标题 + 网格（可隐藏周末）+ 左右滑动切周。 */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class
+)
 @Composable
 fun TimetableScreen(
     entries: List<EntryWithCourse>,
@@ -215,9 +219,9 @@ fun TimetableScreen(
                     LaunchedEffect(Unit) { shown = true }
                     androidx.compose.animation.AnimatedVisibility(
                         visible = shown,
-                        enter = fadeIn(tween(500)) + slideInVertically(
+                        enter = fadeIn(AppMotion.effects()) + slideInVertically(
                             initialOffsetY = { it / 12 },
-                            animationSpec = tween(500, easing = FastOutSlowInEasing),
+                            animationSpec = AppMotion.spatial(),
                         ),
                     ) {
                     Column(
@@ -270,8 +274,15 @@ fun TimetableScreen(
             return@Column
         }
 
-        // ---- 解析中指示（首页导入后进入解析状态）----
-        if (parsing) {
+        // ---- 解析中指示（首页导入后进入解析状态，平滑出现/消失）----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = parsing,
+            enter = fadeIn(AppMotion.effectsFast()) +
+                androidx.compose.animation.expandVertically(AppMotion.spatialFast()),
+            exit = fadeOut(AppMotion.effectsFast()) +
+                androidx.compose.animation.shrinkVertically(AppMotion.spatialFast()),
+        ) {
+            Column {
             androidx.compose.material3.LinearProgressIndicator(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
             )
@@ -281,6 +292,7 @@ fun TimetableScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
+            }
         }
 
         // ---- 标题栏：第 N 周大字 + 日期范围小字（玻璃模式包一层玻璃舱） ----
@@ -336,16 +348,25 @@ fun TimetableScreen(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
-                        // 周数数字滚动切换（水平方向与翻页一致）
+                        // 周数数字滚动切换（水平方向与翻页一致，Expressive 弹性规格）
                         androidx.compose.animation.AnimatedContent(
                             targetState = selectedWeek,
                             transitionSpec = {
+                                val move = AppMotion.spatialFast<androidx.compose.ui.unit.IntOffset>()
                                 if (targetState > initialState) {
-                                    (slideInHorizontally { it / 3 } + fadeIn(tween(160)))
-                                        .togetherWith(slideOutHorizontally { -it / 3 } + fadeOut(tween(120)))
+                                    (slideInHorizontally(move) { it / 3 } +
+                                        fadeIn(AppMotion.effectsFast()))
+                                        .togetherWith(
+                                            slideOutHorizontally(move) { -it / 3 } +
+                                                fadeOut(AppMotion.effectsFast())
+                                        )
                                 } else {
-                                    (slideInHorizontally { -it / 3 } + fadeIn(tween(160)))
-                                        .togetherWith(slideOutHorizontally { it / 3 } + fadeOut(tween(120)))
+                                    (slideInHorizontally(move) { -it / 3 } +
+                                        fadeIn(AppMotion.effectsFast()))
+                                        .togetherWith(
+                                            slideOutHorizontally(move) { it / 3 } +
+                                                fadeOut(AppMotion.effectsFast())
+                                        )
                                 }
                             },
                             label = "weekNumber",
@@ -433,15 +454,8 @@ fun TimetableScreen(
                 }
             }
         }
-        if (glass) {
-            com.example.composeapp.ui.theme.GlassSurface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) { headerContent() }
-        } else {
-            headerContent()
-        }
+        // 标题舱不再包容器背景：标题/图标直接放在磨砂背景之上（亮暗模式由主题色保证可读）
+        headerContent()
         HorizontalDivider(
             color = MaterialTheme.colorScheme.outlineVariant
                 .copy(alpha = if (glass) 0.35f else 1f)

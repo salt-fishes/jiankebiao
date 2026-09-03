@@ -27,8 +27,8 @@ android {
         applicationId = "com.example.composeapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.6"
+        versionCode = 8
+        versionName = "1.7"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {
@@ -69,6 +69,15 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.VERSION_NAME：关于页/设置页统一读取，避免多处硬编码漂移
+        buildConfig = true
+    }
+
+    lint {
+        // lifecycle 2.8.x lint detector 与 Kotlin 2.1.21 K2 UAST 的已知崩溃
+        // （NonNullableMutableLiveDataDetector IncompatibleClassChangeError），
+        // 本应用不使用 LiveData，禁用该检查器即可通过 release 构建
+        disable += "NullSafeMutableLiveData"
     }
 }
 
