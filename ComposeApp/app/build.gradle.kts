@@ -27,8 +27,8 @@ android {
         applicationId = "com.example.composeapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 9
+        versionName = "1.7.1"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {

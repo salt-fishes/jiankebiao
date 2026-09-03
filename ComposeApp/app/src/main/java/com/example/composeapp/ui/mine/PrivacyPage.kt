@@ -98,6 +98,11 @@ fun PrivacyPage(
                     )
                     CardDivider()
                     PermissionRow(
+                        "振动",
+                        "操作反馈的轻微震动：底栏切换、调课落位、同步完成等关键节点，不用于提醒通知。",
+                    )
+                    CardDivider()
+                    PermissionRow(
                         "精确闹钟",
                         "让课前提醒在设定时刻准点触发，不用于任何其他目的。",
                     )
@@ -171,7 +176,7 @@ fun PrivacyPage(
             GlassCard(glass, Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Text(
-                        "• 支持 Android 8.0（API 26）至最新系统，含荣耀 MagicOS、华为 HarmonyOS、小米澎湃 OS 等国产 ROM\n" +
+                        "• 支持 Android 8.0 及以上系统\n" +
                             "• 背景模糊与动态取色需要 Android 12 及以上，低版本自动降级，不影响核心功能\n" +
                             "• 荣耀 / 华为等系统日历没有 .ics 文件导入入口，推荐使用应用内「同步到系统日历」直接写入\n" +
                             "• 课表识别当前适配正方教务导出的个人课表 PDF 与班级课表 Excel，其他教务系统欢迎邮件反馈",

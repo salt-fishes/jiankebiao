@@ -7,6 +7,8 @@
     <!-- 同步课程到系统日历（只写专属「简课表」本地日历） -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- 操作触感反馈（普通权限，无需运行时申请） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 开机后重排课前提醒 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 精确闹钟：USE_EXACT_ALARM 在 API 33+ 自动授予（课表提醒为应用核心功能）；

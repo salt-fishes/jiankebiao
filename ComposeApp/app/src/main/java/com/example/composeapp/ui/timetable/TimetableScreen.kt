@@ -97,6 +97,7 @@ import com.example.composeapp.data.SectionTime
 import com.example.composeapp.data.SettingsRepository
 import com.example.composeapp.data.TimeUtils
 import com.example.composeapp.data.WeekCalculator
+import com.example.composeapp.ui.theme.Haptics
 import com.example.composeapp.ui.theme.courseBlockColors
 import com.example.composeapp.ui.theme.courseBlockColorsDynamic
 import kotlinx.coroutines.Dispatchers
@@ -1084,10 +1085,14 @@ private fun CourseBlock(
         scaleY = s
     }
     // 长按拖拽换位置（与单击手势独立：短按点击、长按拖起）
+    val hapticContext = androidx.compose.ui.platform.LocalContext.current
     val dragModifier = if (onDragStart != null && onDragDelta != null) {
         Modifier.pointerInput(entry.entryId) {
             detectDragGesturesAfterLongPress(
-                onDragStart = { onDragStart?.invoke(it) },
+                onDragStart = {
+                    Haptics.tick(hapticContext)  // 课程拖起触感
+                    onDragStart?.invoke(it)
+                },
                 onDrag = { change, _ ->
                     change.consume()
                     // 绝对坐标：每次上报手指在块内的位置，避免增量累计漂移

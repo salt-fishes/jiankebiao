@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.composeapp.ui.theme.AppMotion
+import com.example.composeapp.ui.theme.Haptics
 import com.example.composeapp.ScheduleParseService
 import com.example.composeapp.data.CalendarSync
 import com.example.composeapp.data.EntryWithCourse
@@ -188,6 +189,7 @@ private fun detectImportExt(head: ByteArray): String? {
         scope.launch {
             settingsRepo.setSemesterStart(date)  // 写库完成后再刷新，避免小组件读到旧日期
             AppRefresh.onDataChanged(context)
+            Haptics.tick(context)  // 学期设置轻震
         }
     }
 
@@ -381,6 +383,7 @@ private fun detectImportExt(head: ByteArray): String? {
                 }
             }
             result.onSuccess { n ->
+                Haptics.click(context)  // 同步完成确认触感
                 showSnackbar("已把 $n 节课程写入系统日历「简课表」")
             }.onFailure { e ->
                 showSnackbar("同步失败：${e.message ?: "未知错误"}")
@@ -396,6 +399,7 @@ private fun detectImportExt(head: ByteArray): String? {
                 }
             }
             removed.onSuccess { n ->
+                Haptics.click(context)  // 清空完成确认触感
                 showSnackbar(if (n > 0) "已从系统日历移除 $n 节课程" else "系统日历里没有可清理的课程")
             }.onFailure { e ->
                 showSnackbar("清理失败：${e.message ?: "未知错误"}")
@@ -651,6 +655,11 @@ private fun detectImportExt(head: ByteArray): String? {
                 // 拖动时直接跟手（dragPx 记录像素偏移），松手从当前位置连续吸附到最近槽位
                 val pillSlot = remember { Animatable(tab.toFloat()) }
                 var dragPx by mutableFloatStateOf(0f)
+                // 拖动跟手：基准值在拖动开始时同步冻结，偏移只随手指变化
+                var isDragging by mutableStateOf(false)
+                var dragBase by mutableFloatStateOf(0f)
+                // 拖动经过槽位时的触感记录：每跨过一个槽位轻震一次
+                var lastTickSlot by mutableIntStateOf(tab)
                 LaunchedEffect(tab) {
                     pillSlot.animateTo(tab.toFloat(), AppMotion.spatialFast())
                 }
@@ -665,8 +674,9 @@ private fun detectImportExt(head: ByteArray): String? {
                         Modifier
                             .align(Alignment.CenterStart)
                             .offset {
+                                val base = if (isDragging) dragBase else pillSlot.value
                                 IntOffset(
-                                    (slotPx * pillSlot.value + pillInsetPx + dragPx).roundToInt(),
+                                    (slotPx * base + pillInsetPx + dragPx).roundToInt(),
                                     0,
                                 )
                             }
@@ -678,32 +688,48 @@ private fun detectImportExt(head: ByteArray): String? {
                     // 图标与胶囊用同一套槽位公式：每槽位宽度 = slot，图标居中，
                     // 整槽位可点（比 64dp 胶囊点击区域大，且不会互相遮挡）；
                     // 横向拖动跟手移动胶囊，点击（未过滑动阈值）仍走各槽位的 clickable
+                    // 拖动期间胶囊位置只由「拖动起点 + 手指位移」决定（基准同步冻结），
+                    // 与可能仍在进行的弹簧动画完全解耦——否则动画推进叠加手指位移会感觉不跟手；
+                    // onDragCancel 与 onDragEnd 同等处理，避免手势被打断后 dragPx 残留、胶囊卡在半路
+                    fun settleDrag() {
+                        if (!isDragging) return
+                        isDragging = false
+                        val from = dragBase + dragPx / slotPx
+                        val target = from.roundToInt().coerceIn(0, TAB_LABELS.lastIndex)
+                        dragPx = 0f
+                        Haptics.tick(context)  // 松手吸附触感
+                        lastTickSlot = target
+                        scope.launch {
+                            pillSlot.snapTo(from)
+                            if (target == tab) {
+                                pillSlot.animateTo(target.toFloat(), AppMotion.spatialFast())
+                            }
+                        }
+                        tab = target  // 变化时由 LaunchedEffect 弹簧到目标
+                    }
                     Row(
                         Modifier
                             .fillMaxSize()
                             .pointerInput(Unit) {
                                 detectHorizontalDragGestures(
                                     onDragStart = {
-                                        // 冻结进行中的弹簧动画，拖动位移基于当前值计算
+                                        isDragging = true
+                                        dragBase = pillSlot.value
+                                        lastTickSlot = dragBase.roundToInt()
                                         scope.launch { pillSlot.stop() }
                                     },
-                                    onDragEnd = {
-                                        val from = pillSlot.value + dragPx / slotPx
-                                        val target = from.roundToInt()
-                                            .coerceIn(0, TAB_LABELS.lastIndex)
-                                        dragPx = 0f
-                                        scope.launch {
-                                            pillSlot.snapTo(from)
-                                            if (target == tab) {
-                                                pillSlot.animateTo(target.toFloat(), AppMotion.spatialFast())
-                                            }
-                                        }
-                                        tab = target  // 变化时由 LaunchedEffect 弹簧到目标
-                                    },
+                                    onDragEnd = { settleDrag() },
+                                    onDragCancel = { settleDrag() },
                                 ) { change, dragAmount ->
                                     change.consume()
                                     val range = slotPx * (TAB_LABELS.size - 1)
                                     dragPx = (dragPx + dragAmount).coerceIn(-range, range)
+                                    // 拖动每跨过一个槽位：轻震一格
+                                    val hoveredSlot = (dragBase + dragPx / slotPx).roundToInt()
+                                    if (hoveredSlot != lastTickSlot && hoveredSlot in TAB_LABELS.indices) {
+                                        lastTickSlot = hoveredSlot
+                                        Haptics.tick(context)
+                                    }
                                 }
                             }
                     ) {
@@ -718,7 +744,10 @@ private fun detectImportExt(head: ByteArray): String? {
                                 Modifier
                                     .width(slot)
                                     .fillMaxHeight()
-                                    .clickable { tab = i },
+                                    .clickable {
+                                        tab = i
+                                        Haptics.tick(context)  // 页签切换轻震
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
@@ -805,6 +834,7 @@ private fun detectImportExt(head: ByteArray): String? {
                                 }
                             }.onSuccess {
                                 AppRefresh.onDataChanged(context)
+                                Haptics.heavy(context)  // 调课落位强反馈
                                 val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
                                 showSnackbar("已移动至${dayNames[day - 1]} 第 $start-$end 节")
                             }.onFailure {
@@ -817,6 +847,7 @@ private fun detectImportExt(head: ByteArray): String? {
                         settingsRepo.setActiveTimetable(id)
                         AppRefresh.onDataChanged(context)
                         val name = timetableInfos.firstOrNull { it.timetable.id == id }?.timetable?.name ?: ""
+                        Haptics.click(context)  // 切换课表触感
                         showSnackbar("已切换到《$name》")
                     },
                     onNewTimetable = { showNewTimetableDialog = true },
@@ -840,6 +871,7 @@ private fun detectImportExt(head: ByteArray): String? {
                         scope.launch {
                             settingsRepo.setTotalWeeks(it)
                             AppRefresh.onDataChanged(context)
+                            Haptics.tick(context)  // 周数设置轻震
                         }
                     },
                     onSetShowWeekend = {
@@ -890,6 +922,7 @@ private fun detectImportExt(head: ByteArray): String? {
                             }
                             File(context.filesDir, ScheduleParseService.RESULT_FILE).delete()
                             AppRefresh.onDataChanged(context)
+                            Haptics.heavy(context)  // 危险操作完成的强反馈
                             showSnackbar("已清除《${affected?.timetable?.name ?: "当前课表"}》")
                         }
                     },
@@ -914,6 +947,7 @@ private fun detectImportExt(head: ByteArray): String? {
             onSwitch = { t ->
                 settingsRepo.setActiveTimetable(t.id)
                 AppRefresh.onDataChanged(context)
+                Haptics.click(context)  // 切换课表触感
                 showSnackbar("已切换到《${t.name}》")
             },
             onUpdate = { t ->
@@ -922,6 +956,7 @@ private fun detectImportExt(head: ByteArray): String? {
                         scheduleRepo.updateTimetable(t)
                     }
                     AppRefresh.onDataChanged(context)
+                    Haptics.click(context)
                     showSnackbar("已保存")
                 }
             },
@@ -944,6 +979,7 @@ private fun detectImportExt(head: ByteArray): String? {
                     }
                     result.onSuccess {
                         AppRefresh.onDataChanged(context)
+                        Haptics.click(context)  // 复制成功触感
                         showSnackbar("已复制为《${t.name} 副本》")
                     }.onFailure { e ->
                         showSnackbar("复制失败：${e.message ?: "未知错误"}")
@@ -959,6 +995,7 @@ private fun detectImportExt(head: ByteArray): String? {
                     }
                     result.onSuccess {
                         AppRefresh.onDataChanged(context)
+                        Haptics.heavy(context)  // 删除课表强反馈
                         showSnackbar("已删除《${t.name}》")
                     }.onFailure { e ->
                         showSnackbar(e.message ?: "删除失败")
@@ -1108,6 +1145,7 @@ private fun detectImportExt(head: ByteArray): String? {
                     }
                     AppRefresh.onDataChanged(context)
                 }
+                Haptics.heavy(context)  // 删除课程强反馈
                 showSnackbar("已删除本节")
             },
             onDismiss = { selectedEntry = null },
@@ -1126,6 +1164,7 @@ private fun detectImportExt(head: ByteArray): String? {
                         }
                     }.onSuccess {
                         AppRefresh.onDataChanged(context)
+                        Haptics.click(context)  // 保存成功触感
                         showSnackbar("已保存")
                     }.onFailure {
                         showSnackbar("保存失败：${it.message ?: "未知错误"}")
@@ -1139,6 +1178,7 @@ private fun detectImportExt(head: ByteArray): String? {
                     }
                     AppRefresh.onDataChanged(context)
                 }
+                Haptics.heavy(context)  // 删除课程强反馈
                 showSnackbar("已删除本节")
             },
             onDismiss = { editingEntry = null },
@@ -1165,6 +1205,7 @@ private fun detectImportExt(head: ByteArray): String? {
                         }
                     }.onSuccess {
                         AppRefresh.onDataChanged(context)
+                        Haptics.click(context)  // 添加成功触感
                         showSnackbar("已添加：$name")
                     }.onFailure {
                         showSnackbar("添加失败：${it.message ?: "未知错误"}")

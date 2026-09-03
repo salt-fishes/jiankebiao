@@ -46,8 +46,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.composeapp.ui.theme.AppMotion
+import com.example.composeapp.ui.theme.Haptics
 import com.example.composeapp.data.ScheduleSettings
 import com.example.composeapp.data.WeekCalculator
 import java.time.LocalDate
@@ -97,6 +99,7 @@ fun MineScreen(
     var showWeekDialog by rememberSaveable { mutableStateOf(false) }
     var showClearConfirm by rememberSaveable { mutableStateOf(false) }
     val today = remember { LocalDate.now() }
+    val context = LocalContext.current
 
     Column(
         modifier
@@ -322,17 +325,26 @@ fun MineScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
                     FilterChip(
                         selected = settings.darkMode == "system",
-                        onClick = { onSetDarkMode("system") },
+                        onClick = {
+                            Haptics.tick(context)
+                            onSetDarkMode("system")
+                        },
                         label = { Text("跟随系统") },
                     )
                     FilterChip(
                         selected = settings.darkMode == "light",
-                        onClick = { onSetDarkMode("light") },
+                        onClick = {
+                            Haptics.tick(context)
+                            onSetDarkMode("light")
+                        },
                         label = { Text("亮色") },
                     )
                     FilterChip(
                         selected = settings.darkMode == "dark",
-                        onClick = { onSetDarkMode("dark") },
+                        onClick = {
+                            Haptics.tick(context)
+                            onSetDarkMode("dark")
+                        },
                         label = { Text("暗色") },
                     )
                 }
@@ -373,7 +385,10 @@ fun MineScreen(
                             listOf(5, 10, 15, 20).forEach { m ->
                                 FilterChip(
                                     selected = settings.remindMinutesBefore == m,
-                                    onClick = { onSetRemindMinutes(m) },
+                                    onClick = {
+                                        Haptics.tick(context)
+                                        onSetRemindMinutes(m)
+                                    },
                                     label = { Text("$m 分钟") },
                                     modifier = Modifier.padding(end = 6.dp),
                                 )
@@ -600,7 +615,11 @@ private fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
     ) {
+        val context = LocalContext.current
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = {
+            Haptics.tick(context)
+            onChange(it)
+        })
     }
 }

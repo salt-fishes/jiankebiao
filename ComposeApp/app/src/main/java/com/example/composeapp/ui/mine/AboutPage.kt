@@ -58,12 +58,20 @@ import com.example.composeapp.ui.theme.AppMotion
 
 /** 更新记录数据：新版本在前。 */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "1.7.1" to listOf(
+        "LTS 长期稳定版：在 v1.7 基础上打磨体验，无破坏性改动",
+        "修复底栏药丸拖动跟手性（拖动基准冻结 + 手势取消兜底）",
+        "振动反馈扩展：课表拖起/落位、课程增删改、课表切换与复制删除、学期设置",
+        "隐私政策权限清单新增「振动」说明",
+        "兼容性说明精简：支持 Android 8.0 及以上系统",
+    ),
     "1.7" to listOf(
         "系统日历直同步：课程一键写入系统日历「简课表」，可一键清空撤销",
         "全新应用图标；设置页整合重排，层次更清晰",
         "更丰富的弹性动效：二级页转场、底栏拖拽吸附、图标回弹",
         "二级页返回时保留之前的浏览位置",
         "彻底修复暗色模式下玻璃界面正文变黑的问题",
+        "操作振动反馈：底栏切换、调课落位、同步完成等关键节点轻微震动",
     ),
     "1.6" to listOf(
         "分享直达：微信/QQ 分享课表文件可直接选「简课表」导入",
@@ -289,7 +297,7 @@ fun AboutPage(
             GlassCard(glass, Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Text(
-                        "• 支持 Android 8.0 及以上系统，含荣耀 / 华为 / 小米等国产 ROM\n" +
+                        "• 支持 Android 8.0 及以上系统\n" +
                             "• 课表识别当前适配正方教务导出的 PDF 与班级课表 Excel\n" +
                             "• 其他教务系统如有适配需求，欢迎发邮件反馈",
                         style = MaterialTheme.typography.bodyMedium,
