@@ -112,8 +112,8 @@ fun AboutPage(
             FeatureRow("本地编辑", "点课程可修改教师、地点，删除排课", glass)
             FeatureRow("桌面小组件", "3×2 与 2×2 两种规格，可分别绑定课表", glass)
             FeatureRow("上课提醒", "课前 5/10/15/20 分钟本地通知，准点触发", glass)
-            FeatureRow("个性化", "深色模式、动态取色、作息时间、周末显隐自定义", glass)
-            FeatureRow("自定义背景（实验）", "上传背景图片，首页/今日页/底栏磨砂玻璃风格", glass)
+            FeatureRow("个性化", "深色模式、动态取色、磨砂玻璃风格、作息时间、周末显隐自定义", glass)
+            FeatureRow("自定义背景", "默认内置渐变背景，可上传图片铺满首页/今日页/底栏", glass)
 
             Spacer(Modifier.height(20.dp))
             SectionTitle("优势")
@@ -130,13 +130,21 @@ fun AboutPage(
 
             Spacer(Modifier.height(24.dp))
             SectionTitle("更新记录")
+            ChangelogItem("1.6", listOf(
+                "分享直达：微信/QQ 分享课表文件可直接选「简课表」导入",
+                "磨砂玻璃风格正式化：默认内置渐变背景，可换自定义图片",
+                "修复深色模式下玻璃界面文字对比度问题",
+                "导出到系统日历（.ics）：可导入手机日历获得全天候提醒",
+                "界面动效：底栏胶囊滑移、周数滚动、方向性转场、拖拽落位回弹",
+                "升级 Material 3 至 1.4（Expressive 基线）",
+            ), glass, tag = "当前版本")
             ChangelogItem("1.5", listOf(
                 "多课表管理：班级 / 个人 / 同学的课表并存，顶栏面板快速切换",
                 "新建课表可选导入文件或复制现有课表，自动命名与开学日识别",
                 "每张课表独立的开学日、总周数与作息时间",
                 "小组件按实例绑定课表（3×2 / 2×2）",
                 "修复周次计算与开学前显示问题；手势返回",
-            ), glass, tag = "当前版本")
+            ), glass)
             ChangelogItem("1.4", listOf(
                 "班级课表 Excel 导入（免 OCR，秒级）",
                 "长按拖拽调课、一键分享整周课表",

@@ -4,22 +4,34 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -70,9 +82,11 @@ import com.example.composeapp.widget.ScheduleWidgetCompactProvider
 import com.example.composeapp.widget.ScheduleWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.roundToInt
 
 private val TAB_LABELS = listOf("课表", "今日", "我的")
 
@@ -84,10 +98,31 @@ private val IMPORT_MIMES = arrayOf(
     "application/x-xls",
 )
 
+/**
+ * 魔数判定分享文件的真实类型（分享方常报 octet-stream，mime 不可信）。
+ * 返回临时文件扩展名：pdf / xls / xlsx（xlsx 当前不支持，由解析器给出明确报错）；
+ * 嗅探不出返回 null。
+ */
+private fun detectImportExt(head: ByteArray): String? {
+    fun at(i: Int, c: Char) = head.getOrNull(i) == c.code.toByte()
+    fun at(i: Int, b: Int) = head.getOrNull(i) == b.toByte()
+    return when {
+        head.size >= 4 && at(0, '%') && at(1, 'P') && at(2, 'D') && at(3, 'F') -> "pdf"
+        // CDF/OLE2 头：BIFF8 .xls，也是微信分享 .xls 常见伪装（octet-stream / CDFV2）
+        head.size >= 4 && at(0, 0xD0) && at(1, 0xCF) && at(2, 0x11) && at(3, 0xE0) -> "xls"
+        // zip 容器（PK\u0003\u0004）：xlsx 属此类；当前解析器不支持，交给解析器明确报错
+        head.size >= 4 && at(0, 'P') && at(1, 'K') && at(2, 3) && at(3, 4) -> "xlsx"
+        else -> null
+    }
+}
+
 /** 应用外壳：底部导航三页 + 解析流程 + 全局状态。 */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
-fun AppRoot() {
+fun AppRoot(
+    // 系统分享/「用其他应用打开」进来的待导入文件（MainActivity 转发）
+    importUris: MutableSharedFlow<Uri> = MutableSharedFlow(),
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
@@ -183,6 +218,51 @@ fun AppRoot() {
         }
     }
 
+    // ---- 系统分享/「用其他应用打开」导入：魔数嗅探类型，与文件选择器共用解析管道 ----
+    LaunchedEffect(importUris) {
+        importUris.collect { uri ->
+            val result = runCatching {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val resolver = context.contentResolver
+                    // 先读文件头嗅探真实类型（分享方常报 octet-stream，mime 不可信）
+                    val head = resolver.openInputStream(uri)?.use { input ->
+                        val buf = ByteArray(8)
+                        val n = input.read(buf)
+                        buf.copyOf(if (n > 0) n else 0)
+                    } ?: throw IllegalStateException("无法读取文件")
+                    val ext = detectImportExt(head)
+                        ?: throw IllegalArgumentException("不是支持的课表文件（需 PDF 或 .xls）")
+                    // 原始文件名仅用于自动命名课表（服务从名字提取「xx的课表」）
+                    val name = runCatching {
+                        resolver.query(
+                            uri,
+                            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                            null, null, null,
+                        )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                    }.getOrNull() ?: ""
+                    val importFile = File(
+                        context.cacheDir,
+                        "import_${System.currentTimeMillis()}.$ext"
+                    )
+                    resolver.openInputStream(uri)?.use { input ->
+                        importFile.outputStream().use { out ->
+                            input.copyTo(out)
+                        }
+                    } ?: throw IllegalStateException("无法读取文件")
+                    importFile to name
+                }
+            }
+            result.onSuccess { (importFile, sourceName) ->
+                tab = 0  // 跳到课表页：解析进度与导入确认弹窗都在可见位置
+                startParse(importFile.absolutePath, sourceName)
+            }.onFailure { e ->
+                showSnackbar("导入失败：${e.message ?: "不支持的文件类型"}")
+            }
+        }
+        // 消费完成：清 replay 缓存，配置变更重建时不再重复导入
+        importUris.resetReplayCache()
+    }
+
     // ---- 实验性：背景图导入（降采样后存应用私有目录） ----
     val bgPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -203,6 +283,55 @@ fun AppRoot() {
                     showSnackbar("无法读取图片：${e.message ?: "未知错误"}")
                 }
             }
+        }
+    }
+
+    // ---- 导出到系统日历（.ics）：SAF 选保存位置后写入，零权限 ----
+    var pendingIcsExport by remember { mutableStateOf<String?>(null) }
+    val icsSaver = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/calendar")
+    ) { uri ->
+        if (uri != null) {
+            val content = pendingIcsExport
+            pendingIcsExport = null
+            if (content != null) {
+                scope.launch {
+                    val result = runCatching {
+                        kotlinx.coroutines.withContext(Dispatchers.IO) {
+                            context.contentResolver.openOutputStream(uri)?.use { out ->
+                                out.write(content.toByteArray(Charsets.UTF_8))
+                            } ?: throw IllegalStateException("无法写入文件")
+                        }
+                    }
+                    result.onSuccess { showSnackbar("已导出：可导入到系统日历或日历应用") }
+                        .onFailure { e ->
+                            showSnackbar("导出失败：${e.message ?: "未知错误"}")
+                        }
+                }
+            }
+        } else {
+            pendingIcsExport = null
+        }
+    }
+    val doExportIcs: () -> Unit = {
+        val start = settings.semesterStart.takeIf { it > 0L }
+            ?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate() }
+        if (start == null) {
+            showSnackbar("请先设置开学时间")
+        } else {
+            val ics = com.example.composeapp.data.CalendarExport.buildIcs(
+                entries = entries,
+                sectionTimes = settings.sectionTimes,
+                semesterStart = start,
+                opts = com.example.composeapp.data.CalendarExport.Options(
+                    timetableId = settings.timetableId,
+                    timetableName = settings.timetableName,
+                    totalWeeks = settings.totalWeeks,
+                    remindMinutesBefore = if (settings.remindEnabled) settings.remindMinutesBefore else 0,
+                ),
+            )
+            pendingIcsExport = ics
+            icsSaver.launch("课表_${settings.timetableName.ifBlank { "我的课表" }}.ics")
         }
     }
 
@@ -408,38 +537,57 @@ fun AppRoot() {
         bottomBar = {
             // 迷你底栏：56dp 高，图标 + 选中态胶囊；玻璃模式下半透明 + 顶部细描边
             @Composable fun BottomBarRow() {
-                Row(
-                    Modifier.fillMaxWidth().height(56.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TAB_LABELS.forEachIndexed { i, label ->
-                        val selected = tab == i
-                        Box(
-                            Modifier
-                                .width(64.dp)
-                                .height(34.dp)
-                                .clip(MaterialTheme.shapes.large)
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.secondaryContainer
-                                    else androidx.compose.ui.graphics.Color.Transparent
+                // 选中胶囊平滑滑移：目标位置按均分槽位计算，胶囊在槽位间连续移动
+                val indicatorIndex by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = tab.toFloat(),
+                    animationSpec = androidx.compose.animation.core.spring(
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                    ),
+                    label = "bottomBarIndicator",
+                )
+                BoxWithConstraints(Modifier.fillMaxWidth().height(56.dp)) {
+                    val slot = maxWidth / TAB_LABELS.size
+                    val pillOffset = slot * indicatorIndex + (slot - 64.dp) / 2
+                    Row(
+                        Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TAB_LABELS.forEachIndexed { i, label ->
+                            Box(
+                                Modifier
+                                    .width(64.dp)
+                                    .height(34.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    when (i) {
+                                        0 -> Icons.Filled.Home
+                                        1 -> Icons.AutoMirrored.Filled.List
+                                        else -> Icons.Filled.Settings
+                                    },
+                                    contentDescription = label,
+                                    tint = if (tab == i) MaterialTheme.colorScheme.onSecondaryContainer
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp),
                                 )
-                                .clickable { tab = i },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                when (i) {
-                                    0 -> Icons.Filled.Home
-                                    1 -> Icons.Filled.List
-                                    else -> Icons.Filled.Settings
-                                },
-                                contentDescription = label,
-                                tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp),
-                            )
+                            }
                         }
                     }
+                    // 滑移胶囊：绘制在图标层之下，点击仍在图标 Box 上（天然在上层）
+                    Box(
+                        Modifier
+                            .offset(x = pillOffset)
+                            .width(64.dp)
+                            .height(34.dp)
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null,
+                            ) { tab = indicatorIndex.roundToInt() },
+                    )
                 }
             }
             if (glassOn) {
@@ -466,17 +614,33 @@ fun AppRoot() {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        androidx.compose.animation.Crossfade(
+        // Tab 方向性转场：切到右边页从右滑入，切到左边页从左滑入（替代无方向 Crossfade）
+        androidx.compose.animation.AnimatedContent(
             targetState = tab,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 6 } +
+                        fadeIn(tween(240)))
+                        .togetherWith(
+                            slideOutHorizontally(tween(200)) { -it / 8 } + fadeOut(tween(160))
+                        )
+                } else {
+                    (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 6 } +
+                        fadeIn(tween(240)))
+                        .togetherWith(
+                            slideOutHorizontally(tween(200)) { it / 8 } + fadeOut(tween(160))
+                        )
+                }
+            },
+            label = "tabSwitch",
             modifier = Modifier.padding(padding),
-            label = "tabs",
         ) { page ->
             when (page) {
                 0 -> TimetableScreen(
                     entries = entries,
                     settings = settings,
                     parsing = parsing,
-                    glass = settings.customBgEnabled && settings.customBgPath.isNotBlank(),
+                    glass = glassOn,
                     onCourseClick = { selectedEntry = it },
                     onShowSnackbar = showSnackbar,
                     onImportClick = { filePicker.launch(IMPORT_MIMES) },
@@ -509,7 +673,7 @@ fun AppRoot() {
                 1 -> TodayScreen(
                     entries = entries,
                     settings = settings,
-                    glass = settings.customBgEnabled && settings.customBgPath.isNotBlank(),
+                    glass = glassOn,
                 )
                 else -> MineScreen(
                     settings = settings,
@@ -555,13 +719,14 @@ fun AppRoot() {
                                 if (settings.customBgPath.isNotBlank()) {
                                     File(settings.customBgPath).delete()
                                 }
+                                // 只清图片，保留玻璃开启状态：回退到内置渐变背景
                                 settingsRepo.setCustomBgPath("")
-                                settingsRepo.setCustomBgEnabled(false)
                             }
-                            showSnackbar("已恢复默认背景")
+                            showSnackbar("已恢复默认渐变背景")
                         }
                     },
                     onSetCustomBgBlur = { settingsRepo.setCustomBgBlur(it) },
+                    onExportIcs = doExportIcs,
                     onClearData = {
                         scope.launch {
                             val affected = timetableInfos
@@ -852,7 +1017,7 @@ private fun defaultSettings(): ScheduleSettings =
         sectionTimes = com.example.composeapp.data.SettingsRepository.DEFAULT_SECTION_TIMES.take(12),
         remindEnabled = false,
         remindMinutesBefore = com.example.composeapp.data.SettingsRepository.REMIND_MINUTES_DEFAULT,
-        customBgEnabled = false,
+        customBgEnabled = true,
         customBgPath = "",
         customBgBlurDp = com.example.composeapp.data.SettingsRepository.CUSTOM_BG_BLUR_DEFAULT,
 )

@@ -80,6 +80,7 @@ fun MineScreen(
     onPickBackground: () -> Unit,
     onClearBackground: () -> Unit,
     onSetCustomBgBlur: (Int) -> Unit,
+    onExportIcs: () -> Unit,
     onClearData: () -> Unit,
     onShowSnackbar: (String) -> Unit,
     onOpenAbout: () -> Unit,
@@ -201,8 +202,8 @@ fun MineScreen(
             )
         }
 
-        SectionHeader("实验性")
-        SwitchRow("自定义背景（磨砂玻璃）", settings.customBgEnabled, onSetCustomBgEnabled)
+        // 磨砂玻璃（原实验性，已正式化：默认渐变背景，可选自定义图片）
+        SwitchRow("磨砂玻璃风格", settings.customBgEnabled, onSetCustomBgEnabled)
         AnimatedVisibility(
             visible = settings.customBgEnabled,
             enter = expandVertically(tween(240)) + fadeIn(tween(240)),
@@ -217,10 +218,10 @@ fun MineScreen(
                     .padding(vertical = 6.dp),
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("选择背景图片", style = MaterialTheme.typography.bodyLarge)
+                    Text("选择背景图片（可选）", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (settings.customBgPath.isBlank()) "未设置 · 开启后首页/今日页为磨砂玻璃风格"
-                        else "已设置 · 首页/今日页/底栏磨砂玻璃风格",
+                        if (settings.customBgPath.isBlank()) "未设置 · 使用内置渐变背景"
+                        else "已设置 · 自定义图片铺满首页/今日页/底栏",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -257,7 +258,7 @@ fun MineScreen(
                 }
             }
             Text(
-                "实验性功能：磨砂玻璃风格覆盖首页、今日页与底栏，界面细节可能随后续版本调整",
+                "覆盖首页、今日页与底栏；背景可换为自定义图片",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -348,6 +349,13 @@ fun MineScreen(
         Button(onClick = onPickPdf, enabled = !parsing, modifier = Modifier.fillMaxWidth()) {
             Text(if (parsing) "解析中…" else "导入课表文件（PDF / Excel）")
         }
+        TextButton(
+            onClick = onExportIcs,
+            enabled = entryCount > 0,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("导出到系统日历（.ics）")
+        }
         if (parsing) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
@@ -376,7 +384,7 @@ fun MineScreen(
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Text("关于简课表", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Text("版本 1.3", style = MaterialTheme.typography.labelSmall,
+                    Text("版本 1.6", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))

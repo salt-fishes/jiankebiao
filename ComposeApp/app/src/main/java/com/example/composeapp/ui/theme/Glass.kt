@@ -83,9 +83,11 @@ fun GlassSurface(
 
 /**
  * 实验性自定义背景层：图片铺满（Crop）+ 模糊 + surface 色 scrim 压暗/提亮，
- * 保证前景文字可读（先安静背景，再谈玻璃）。未启用或图片缺失时原样渲染内容。
+ * 保证前景文字可读（先安静背景，再谈玻璃）。
  *
- * 模糊使用 RenderEffect（API 31+）；低版本自动退化为仅 scrim（实验性功能可接受）。
+ * 玻璃模式正式化后：开启开关但未选图时，渲染内置品牌渐变（随亮/暗色系），
+ * 不再透传内容露出主题窗底——那会让暗色模式的浅色文字叠在白底上不可读。
+ * 模糊使用 RenderEffect（API 31+）；低版本自动退化为仅 scrim（可接受）。
  */
 @Composable
 fun CustomBackgroundLayer(
@@ -94,33 +96,50 @@ fun CustomBackgroundLayer(
     blurDp: Int,
     content: @Composable () -> Unit,
 ) {
-    if (!enabled || imagePath.isBlank()) {
-        content()
-        return
-    }
-    // 以文件 mtime 作为缓存键：覆盖选择新图后立即刷新（路径不变也能重解码）
-    val stamp = File(imagePath).lastModified()
-    val bitmap = remember(imagePath, stamp) { decodeDownsampled(imagePath, maxDim = 1440) }
-    if (bitmap == null) {
+    if (!enabled) {
         content()
         return
     }
     val cs = MaterialTheme.colorScheme
+    // 以文件 mtime 作为缓存键：覆盖选择新图后立即刷新（路径不变也能重解码）；
+    // 无图时 bitmap 为 null，走内置渐变。
+    val stamp = if (imagePath.isNotBlank()) File(imagePath).lastModified() else 0L
+    val bitmap = remember(imagePath, stamp) {
+        if (imagePath.isBlank()) null else decodeDownsampled(imagePath, maxDim = 1440)
+    }
     Box(Modifier.fillMaxSize()) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .matchParentSize()
-                .then(
-                    if (blurDp > 0) Modifier.blur(blurDp.coerceIn(1, 28).dp) else Modifier
-                ),
-        )
-        // scrim 随模糊强度递增：0dp 完全直显背景（不做白底遮挡），28dp 时 0.55
-        val scrimAlpha = 0.55f * (blurDp.coerceIn(0, 28) / 28f)
-        if (scrimAlpha > 0f) {
-            Box(Modifier.matchParentSize().background(cs.surface.copy(alpha = scrimAlpha)))
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .matchParentSize()
+                    .then(
+                        if (blurDp > 0) Modifier.blur(blurDp.coerceIn(1, 28).dp) else Modifier
+                    ),
+            )
+            // scrim 随模糊强度递增：0dp 完全直显背景（不做白底遮挡），28dp 时 0.55
+            val scrimAlpha = 0.55f * (blurDp.coerceIn(0, 28) / 28f)
+            if (scrimAlpha > 0f) {
+                Box(Modifier.matchParentSize().background(cs.surface.copy(alpha = scrimAlpha)))
+            }
+        } else {
+            // 内置品牌渐变：顶部 primaryContainer 微光 → surfaceBright → surfaceDim。
+            // 颜色全部取自当前色系，亮/暗模式对比度都由色系保证。
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                cs.primaryContainer.copy(alpha = 0.30f),
+                                cs.surfaceBright,
+                                cs.surfaceDim,
+                            )
+                        )
+                    )
+            )
         }
         content()
     }

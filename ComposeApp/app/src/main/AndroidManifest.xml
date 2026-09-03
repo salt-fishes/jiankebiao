@@ -22,10 +22,38 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 系统分享面板导入（ACTION_SEND）：微信/QQ 分享课表文件直达解析 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/msexcel" />
+                <data android:mimeType="application/x-xls" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/CDFV2" />
+                <!-- 微信分享 .xls 常报 octet-stream，声明后按魔数校验 -->
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <!-- 文件管理器/聊天「用其他应用打开」（ACTION_VIEW） -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/msexcel" />
+                <data android:mimeType="application/x-xls" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/CDFV2" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 

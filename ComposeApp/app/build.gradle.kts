@@ -78,9 +78,11 @@ ksp {
 }
 
 dependencies {
-    // Compose + Material 3（BOM 统一版本，兼容 compileSdk 34）
+    // Compose + Material 3：material3 1.4.0（Expressive 组件/动效进入稳定线），
+    // 显式指定版本，其余由 BOM 统一管理；1.4.0 不再传递依赖 material-icons，需显式引入
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
-    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")

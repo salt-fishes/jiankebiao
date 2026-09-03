@@ -247,7 +247,8 @@ class SettingsRepository private constructor(context: Context) {
             remindEnabled = prefs.getBoolean(KEY_REMIND_ENABLED, false),
             remindMinutesBefore = prefs.getInt(KEY_REMIND_MINUTES, REMIND_MINUTES_DEFAULT)
                 .let { if (it in setOf(5, 10, 15, 20)) it else REMIND_MINUTES_DEFAULT },
-            customBgEnabled = prefs.getBoolean(KEY_CUSTOM_BG_ENABLED, false),
+            // 磨砂玻璃默认开启（正式化）：新装/老用户首次读取默认 true，关掉后记住用户选择
+            customBgEnabled = prefs.getBoolean(KEY_CUSTOM_BG_ENABLED, true),
             customBgPath = prefs.getString(KEY_CUSTOM_BG_PATH, "") ?: "",
             customBgBlurDp = prefs.getInt(KEY_CUSTOM_BG_BLUR, CUSTOM_BG_BLUR_DEFAULT),
         )

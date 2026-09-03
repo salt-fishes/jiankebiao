@@ -1,6 +1,16 @@
 package com.example.composeapp.ui.timetable
 
 import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -200,6 +210,16 @@ fun TimetableScreen(
                     Modifier.weight(1f).fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
+                    // 空态 stagger 入场：主标题 → 副标题 → 三步引导逐个浮现
+                    var shown by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { shown = true }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = shown,
+                        enter = fadeIn(tween(500)) + slideInVertically(
+                            initialOffsetY = { it / 12 },
+                            animationSpec = tween(500, easing = FastOutSlowInEasing),
+                        ),
+                    ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(horizontal = 32.dp),
@@ -243,6 +263,7 @@ fun TimetableScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
+                    }
                     }
                 }
             }
@@ -311,7 +332,32 @@ fun TimetableScreen(
                         )
                     } else {
                         Text(
-                            "第 $selectedWeek 周",
+                            "第 ",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        // 周数数字滚动切换（水平方向与翻页一致）
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = selectedWeek,
+                            transitionSpec = {
+                                if (targetState > initialState) {
+                                    (slideInHorizontally { it / 3 } + fadeIn(tween(160)))
+                                        .togetherWith(slideOutHorizontally { -it / 3 } + fadeOut(tween(120)))
+                                } else {
+                                    (slideInHorizontally { -it / 3 } + fadeIn(tween(160)))
+                                        .togetherWith(slideOutHorizontally { it / 3 } + fadeOut(tween(120)))
+                                }
+                            },
+                            label = "weekNumber",
+                        ) { week ->
+                            Text(
+                                "$week",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Text(
+                            " 周",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
@@ -709,6 +755,8 @@ private fun WeekGridPage(
     var drag by remember { mutableStateOf<GridDrag?>(null) }
     var gridCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var gridSize by remember { mutableStateOf(IntSize.Zero) }
+    // 刚落位的块：唯一弹入一次（拖拽回弹动效）
+    var bounceEntryId by remember { mutableStateOf<Long?>(null) }
 
     fun handleDragEnd() {
         val d = drag
@@ -741,7 +789,10 @@ private fun WeekGridPage(
             }
             found
         }
-        if (finalStart >= 1) onMoveEntry(d.entry, newDay, finalStart, finalStart + dur)
+        if (finalStart >= 1) {
+            bounceEntryId = d.entry.entryId  // 落位后目标块弹入一次
+            onMoveEntry(d.entry, newDay, finalStart, finalStart + dur)
+        }
     }
 
     Box(
@@ -765,6 +816,7 @@ private fun WeekGridPage(
                     dynamicColor = dynamicColor,
                     glass = glass,
                     draggedEntryId = drag?.entry?.entryId,
+                    bounceEntryId = bounceEntryId,
                     onDragStart = { entry, grab, blockCoords, sizePx ->
                         // 块在网格内的位置用 localPositionOf 直接换算，
                         // 不经窗口坐标（窗口坐标不含链上 offset，会跳到列顶）
@@ -857,6 +909,7 @@ private fun DayColumn(
     dynamicColor: Boolean,
     glass: Boolean,
     draggedEntryId: Long?,
+    bounceEntryId: Long?,
     onDragStart: (EntryWithCourse, Offset, LayoutCoordinates, IntSize) -> Unit,
     onDragDelta: (Offset) -> Unit,
     onDragEnd: () -> Unit,
@@ -899,6 +952,7 @@ private fun DayColumn(
                     entry = entry,
                     dimmed = !entry.isInWeek(week),
                     isDragging = draggedEntryId == entry.entryId,
+                    bounce = bounceEntryId == entry.entryId,
                     dynamicColor = dynamicColor,
                     glass = glass,
                     onDragStart = { grab ->
@@ -968,6 +1022,7 @@ private fun CourseBlock(
     glass: Boolean,
     onClick: () -> Unit,
     isDragging: Boolean = false,
+    bounce: Boolean = false,
     onDragStart: ((Offset) -> Unit)? = null,
     onDragDelta: ((Offset) -> Unit)? = null,   // 参数 = 手指在本块内的位置（绝对坐标）
     onDragEnd: (() -> Unit)? = null,
@@ -984,15 +1039,35 @@ private fun CourseBlock(
     // 按压缩放动效（MD3：0.97，弹簧回弹）
     var pressed by remember(entry.entryId) { mutableStateOf(false) }
     val pressScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
+        targetValue = if (pressed || isDragging) 0.97f else 1f,
         animationSpec = androidx.compose.animation.core.spring(
             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
         ),
         label = "blockPress",
     )
     val pressModifier = Modifier.graphicsLayer {
         scaleX = pressScale
         scaleY = pressScale
+    }
+    // 拖拽落位回弹：仅拖拽落地的目标块弹入一次（0.92→1）
+    val bounceScale = remember(entry.entryId) { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(bounce) {
+        if (bounce) {
+            bounceScale.snapTo(0.92f)
+            bounceScale.animateTo(
+                1f,
+                androidx.compose.animation.core.spring(
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                ),
+            )
+        }
+    }
+    val scaleModifier = Modifier.graphicsLayer {
+        val s = pressScale * bounceScale.value
+        scaleX = s
+        scaleY = s
     }
     // 长按拖拽换位置（与单击手势独立：短按点击、长按拖起）
     val dragModifier = if (onDragStart != null && onDragDelta != null) {
@@ -1025,7 +1100,7 @@ private fun CourseBlock(
         BoxWithConstraints(
             modifier = modifier
                 .alpha(if (isDragging) 0.25f else if (dimmed) 0.38f else 1f)
-                .then(pressModifier)
+                .then(scaleModifier)
                 .then(dragModifier)
         ) {
             // 一行约 3 字：按去掉内边距后的可用宽度计算（CJK 全角 ≈ 字号）
@@ -1078,7 +1153,7 @@ private fun CourseBlock(
         modifier = modifier
             .padding(horizontal = 2.dp)
             .alpha(if (isDragging) 0.25f else if (dimmed) 0.38f else 1f)
-            .then(pressModifier)
+            .then(scaleModifier)
             .then(dragModifier)
             .background(container, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
             .clipToBounds()
