@@ -344,45 +344,48 @@ fun TimetableScreen(
                             modifier = Modifier.padding(top = 1.dp),
                         )
                     } else {
-                        Text(
-                            "第 ",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        // 周数数字滚动切换（水平方向与翻页一致，Expressive 弹性规格）
-                        androidx.compose.animation.AnimatedContent(
-                            targetState = selectedWeek,
-                            transitionSpec = {
-                                val move = AppMotion.spatialFast<androidx.compose.ui.unit.IntOffset>()
-                                if (targetState > initialState) {
-                                    (slideInHorizontally(move) { it / 3 } +
-                                        fadeIn(AppMotion.effectsFast()))
-                                        .togetherWith(
-                                            slideOutHorizontally(move) { -it / 3 } +
-                                                fadeOut(AppMotion.effectsFast())
-                                        )
-                                } else {
-                                    (slideInHorizontally(move) { -it / 3 } +
-                                        fadeIn(AppMotion.effectsFast()))
-                                        .togetherWith(
-                                            slideOutHorizontally(move) { it / 3 } +
-                                                fadeOut(AppMotion.effectsFast())
-                                        )
-                                }
-                            },
-                            label = "weekNumber",
-                        ) { week ->
+                        // 「第 N 周」同一行内联显示：三个 Text 若直接放进 Column 会竖排堆叠
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "$week",
+                                "第 ",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            // 周数数字滚动切换（水平方向与翻页一致，Expressive 弹性规格）
+                            androidx.compose.animation.AnimatedContent(
+                                targetState = selectedWeek,
+                                transitionSpec = {
+                                    val move = AppMotion.spatialFast<androidx.compose.ui.unit.IntOffset>()
+                                    if (targetState > initialState) {
+                                        (slideInHorizontally(move) { it / 3 } +
+                                            fadeIn(AppMotion.effectsFast()))
+                                            .togetherWith(
+                                                slideOutHorizontally(move) { -it / 3 } +
+                                                    fadeOut(AppMotion.effectsFast())
+                                            )
+                                    } else {
+                                        (slideInHorizontally(move) { -it / 3 } +
+                                            fadeIn(AppMotion.effectsFast()))
+                                            .togetherWith(
+                                                slideOutHorizontally(move) { it / 3 } +
+                                                    fadeOut(AppMotion.effectsFast())
+                                            )
+                                    }
+                                },
+                                label = "weekNumber",
+                            ) { week ->
+                                Text(
+                                    "$week",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            Text(
+                                " 周",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                             )
                         }
-                        Text(
-                            " 周",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
                         Text(
                             text = weekDateRangeLabel(settings.semesterStartDate, selectedWeek),
                             style = MaterialTheme.typography.labelSmall,

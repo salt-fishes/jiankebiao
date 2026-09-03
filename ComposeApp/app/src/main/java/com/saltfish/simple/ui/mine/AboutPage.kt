@@ -58,6 +58,11 @@ import com.saltfish.simple.ui.theme.AppMotion
 
 /** 更新记录数据：新版本在前。 */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "2.1" to listOf(
+        "包名迁移 com.saltfish.simple 后的首个功能版本",
+        "修复顶部标题「第 N 周」竖排堆叠的布局错误",
+        "功能与 1.7.x LTS 一致：系统日历直同步、振动反馈、磨砂玻璃等",
+    ),
     "1.7.1" to listOf(
         "LTS 长期稳定版：在 v1.7 基础上打磨体验，无破坏性改动",
         "修复底栏药丸拖动跟手性（拖动基准冻结 + 手势取消兜底）",
