@@ -7,8 +7,8 @@
 
 | 组件 | 版本 | 位置 |
 |------|------|------|
-| JDK (Temurin) | 17.0.20+8 | `C:\Users\15572\java\jdk-17.0.20+8` |
-| Android SDK | - | `C:\Users\15572\AppData\Local\Android\Sdk` |
+| JDK (Temurin) | 17.0.20+8 | `%USERPROFILE%\java\jdk-17.0.20+8` |
+| Android SDK | - | `%LOCALAPPDATA%\Android\Sdk` |
 | Gradle | 8.11.1（wrapper） | 仓库自带 `ComposeApp/gradlew`，缓存于 `~/.gradle/wrapper/dists` |
 | adb | platform-tools 最新 | 已在 PATH |
 
@@ -65,7 +65,7 @@
 
 | 变量 | 值 | 作用域 |
 |------|-----|--------|
-| `JAVA_HOME` | `C:\Users\15572\java\jdk-17.0.20+8` | 用户级 |
+| `JAVA_HOME` | `%USERPROFILE%\java\jdk-17.0.20+8` | 用户级 |
 | `Path` | 追加 `%JAVA_HOME%\bin` | 用户级 |
 | `ANDROID_HOME` | （未设置） | 由 `local.properties` 中 `sdk.dir` 提供 |
 
@@ -100,6 +100,7 @@ adb shell content query --uri content://com.android.calendar/calendars
 
 ## 八、真机信息
 
-| 设备 | 序列号 | 说明 |
-|------|--------|------|
-| 荣耀 Android-Device | REMOVED-DEVICE-SERIAL | USB 调试已授权；Android 16；系统日历无 .ics 导入入口 |
+设备型号与序列号等设备标识**不入库**（唯一标识类信息），调试前本地执行 `adb devices -l` 查看。
+
+> 测试真机为国产 ROM（Android 16）：系统日历无 .ics 导入入口——这是应用内置
+> 「同步到系统日历」直写能力的原因。
