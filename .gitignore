@@ -45,3 +45,6 @@ _tools/
 
 # 真实课表 OCR 导出（含个人信息），禁止入库
 MinerU_*.md
+
+# AI 助手注意事项（仅本地，不上传）
+AGENTS.md
