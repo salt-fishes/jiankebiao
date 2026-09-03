@@ -58,6 +58,10 @@ import com.example.composeapp.ui.theme.AppMotion
 
 /** 更新记录数据：新版本在前。 */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "1.7.2" to listOf(
+        "修复顶部标题「第 N 周」竖排堆叠的布局错误",
+        "LTS 线：仅缺陷修复，无功能变更",
+    ),
     "1.7.1" to listOf(
         "LTS 长期稳定版：在 v1.7 基础上打磨体验，无破坏性改动",
         "修复底栏药丸拖动跟手性（拖动基准冻结 + 手势取消兜底）",
