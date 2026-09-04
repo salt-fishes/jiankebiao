@@ -79,6 +79,7 @@ fun MineScreen(
     onOpenSectionTimes: () -> Unit,
     onOpenTimetableManage: () -> Unit = {},
     onOpenWidgetBind: () -> Unit = {},
+    onOpenCompare: () -> Unit = {},
     onSetRemindEnabled: (Boolean) -> Unit,
     onSetRemindMinutes: (Int) -> Unit,
     onSendTestReminder: () -> Unit,
@@ -222,6 +223,8 @@ fun MineScreen(
                 ActionRow("课表管理", "多课表切换 / 重命名 / 复制", enabled = !parsing) { onOpenTimetableManage() }
                 CardDivider()
                 ActionRow("桌面小组件", "3×2 与 2×2 分别绑定课表") { onOpenWidgetBind() }
+                CardDivider()
+                ActionRow("课表对比（实验性）", "勾选多张课表，找共同空闲时间") { onOpenCompare() }
                 CardDivider()
                 ActionRow(
                     "同步到系统日历",

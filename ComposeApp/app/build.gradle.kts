@@ -94,6 +94,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.9.0")
+    // OpenCV：课表截图占用识别（与 ppocr-sdk 同版本）
+    implementation("com.quickbirdstudios:opencv:4.5.3.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
 
     // Room（KSP 编译期处理）

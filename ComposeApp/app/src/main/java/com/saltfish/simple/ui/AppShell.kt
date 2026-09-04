@@ -95,11 +95,18 @@ import com.saltfish.simple.ui.timetable.WidgetBindPage
 import com.saltfish.simple.ui.timetable.CourseDetailSheet
 import com.saltfish.simple.ui.timetable.TimetableScreen
 import com.saltfish.simple.ui.today.TodayScreen
+import com.saltfish.simple.ui.compare.CompareRepository
+import com.saltfish.simple.ui.compare.CompareScreen
+import com.saltfish.simple.ui.compare.CompareTimetable
+import com.saltfish.simple.ui.compare.OccupancyDetection
+import com.saltfish.simple.ui.compare.OccupancyReviewScreen
+import com.saltfish.simple.schedule.OccupancyParser
 import com.saltfish.simple.widget.ScheduleWidgetCompactProvider
 import com.saltfish.simple.widget.ScheduleWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -175,6 +182,9 @@ private fun detectImportExt(head: ByteArray): String? {
     var showTimetableManage by rememberSaveable { mutableStateOf(false) }
     var showWidgetBind by rememberSaveable { mutableStateOf(false) }
     var widgetBindRefresh by remember { mutableIntStateOf(0) }
+    var showCompare by rememberSaveable { mutableStateOf(false) }
+    var compareTimetables by remember { mutableStateOf<List<CompareTimetable>>(emptyList()) }
+    var pendingOccupancy by remember { mutableStateOf<OccupancyDetection?>(null) }
     var pendingImport by remember { mutableStateOf<ParsedSchedule?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -283,9 +293,9 @@ private fun detectImportExt(head: ByteArray): String? {
         importUris.resetReplayCache()
     }
 
-    // ---- 实验性：背景图导入（降采样后存应用私有目录） ----
+    // ---- 背景图导入（系统照片选择器 Photo Picker：零权限，旧版本自动回退 SAF） ----
     val bgPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
+        ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
             scope.launch {
@@ -302,6 +312,42 @@ private fun detectImportExt(head: ByteArray): String? {
                 }.onFailure { e ->
                     showSnackbar("无法读取图片：${e.message ?: "未知错误"}")
                 }
+            }
+        }
+    }
+
+    // ---- 课表对比：系统照片选择器 → 本地占用识别 → 人工校正 ----
+    val compareImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        val dst = File(context.cacheDir, "occ_" + System.currentTimeMillis() + ".jpg")
+                        context.contentResolver.openInputStream(uri)!!.use { input ->
+                            dst.outputStream().use { input.copyTo(it) }
+                        }
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(dst.absolutePath, bounds)
+                        var sample = 1
+                        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1600) sample *= 2
+                        val bmp = android.graphics.BitmapFactory.decodeFile(
+                            dst.absolutePath,
+                            android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+                        ) ?: throw IllegalStateException("无法解码图片")
+                        val grid = OccupancyParser.parse(context, bmp)
+                        val overlay = OccupancyParser.drawOverlay(bmp, grid)
+                        val reviewFile = File(context.filesDir, "occ_review_" + System.currentTimeMillis() + ".png")
+                        reviewFile.outputStream().use {
+                            overlay.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, it)
+                        }
+                        overlay.recycle(); bmp.recycle()
+                        OccupancyDetection(reviewFile.absolutePath, grid)
+                    }
+                }
+                result.onSuccess { pendingOccupancy = it }
+                    .onFailure { e -> showSnackbar("识别失败：" + (e.message ?: "未知错误")) }
             }
         }
     }
@@ -606,12 +652,14 @@ private fun detectImportExt(head: ByteArray): String? {
 
     // ---- 系统手势/按键返回：覆盖页显示时返回先关闭覆盖页，回到原界面原位置 ----
     val overlayShown = showSectionTimes || showAbout || showPrivacy ||
-        showTimetableManage || showWidgetBind
+        showTimetableManage || showWidgetBind || showCompare
     androidx.activity.compose.BackHandler(enabled = overlayShown) {
         when {
+            pendingOccupancy != null -> pendingOccupancy = null
             showSectionTimes -> showSectionTimes = false
             showTimetableManage -> showTimetableManage = false
             showWidgetBind -> showWidgetBind = false
+            showCompare -> showCompare = false
             showAbout -> showAbout = false
             showPrivacy -> showPrivacy = false
         }
@@ -896,7 +944,13 @@ private fun detectImportExt(head: ByteArray): String? {
                         }
                     },
                     onSetCustomBgEnabled = { settingsRepo.setCustomBgEnabled(it) },
-                    onPickBackground = { bgPicker.launch(arrayOf("image/*")) },
+                    onPickBackground = {
+                        bgPicker.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    },
                     onClearBackground = {
                         scope.launch {
                             kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -931,6 +985,7 @@ private fun detectImportExt(head: ByteArray): String? {
                     onOpenPrivacy = { showPrivacy = true },
                     onOpenTimetableManage = { showTimetableManage = true },
                     onOpenWidgetBind = { widgetBindRefresh++; showWidgetBind = true },
+                    onOpenCompare = { showCompare = true },
                 )
              }
         }
@@ -1115,6 +1170,65 @@ private fun detectImportExt(head: ByteArray): String? {
             onBack = { showAbout = false },
         )
     }
+        // ---- 课表对比（实验性）：数据库课表 + 图片对比课表 → 共同空闲 ----
+        OverlayPage(showCompare) {
+            androidx.compose.runtime.LaunchedEffect(showCompare) {
+                if (showCompare) compareTimetables = CompareRepository.load(context)
+            }
+            CompareScreen(
+                timetables = timetableInfos,
+                compareTimetables = compareTimetables,
+                glass = glassOn,
+                sectionsPerDay = settings.sectionsPerDay,
+                defaultWeek = maxOf(
+                    1,
+                    com.saltfish.simple.data.WeekCalculator.currentWeek(
+                        settings.semesterStartDate,
+                        java.time.LocalDate.now(),
+                    ),
+                ),
+                loadEntries = { id ->
+                    scheduleRepo.observeAllEntries(id).first()
+                },
+                onPickImage = {
+                    compareImagePicker.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
+                },
+                onDeleteCompare = { id ->
+                    scope.launch {
+                        compareTimetables = CompareRepository.remove(context, id)
+                        Haptics.heavy(context)
+                        showSnackbar("已删除对比课表")
+                    }
+                },
+                onBack = { showCompare = false },
+            )
+            pendingOccupancy?.let { det ->
+                OccupancyReviewScreen(
+                    detection = det,
+                    glass = glassOn,
+                    onSave = { name, dayCount, blocks ->
+                        pendingOccupancy = null
+                        scope.launch {
+                            compareTimetables = CompareRepository.add(
+                                context,
+                                CompareTimetable(
+                                    CompareRepository.nextId(compareTimetables),
+                                    name, dayCount, blocks,
+                                ),
+                            )
+                            Haptics.click(context)
+                            showSnackbar("已添加对比课表「" + name + "」")
+                        }
+                    },
+                    onCancel = { pendingOccupancy = null },
+                )
+            }
+        }
+
     OverlayPage(showPrivacy) {
         com.saltfish.simple.ui.mine.PrivacyPage(
             glass = glassOn,
