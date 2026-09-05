@@ -13,6 +13,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.saltfish.simple.data.ScheduleRepository
+import com.saltfish.simple.schedule.ImageScheduleParser
 import com.saltfish.simple.schedule.SchedulePdfParser
 import com.saltfish.simple.schedule.ScheduleXlsParser
 import kotlinx.coroutines.CoroutineScope
@@ -35,35 +36,54 @@ class ScheduleParseService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val path = intent?.getStringExtra(EXTRA_PDF_PATH)
+        val i = intent ?: run {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val path = i.getStringExtra(EXTRA_PDF_PATH) ?: i.getStringExtra(EXTRA_IMAGE_PATH)
         if (path == null) {
             stopSelf()
             return START_NOT_STICKY
         }
-        val sourceName = intent.getStringExtra(EXTRA_SOURCE_NAME) ?: ""
+        val isImage = i.getStringExtra(EXTRA_IMAGE_PATH) != null
+        val sourceName = i.getStringExtra(EXTRA_SOURCE_NAME) ?: ""
+        // 规则包由用户在导入弹窗手动选定；id 失效时退正方包并给出可读错误语境
+        val packId = i.getStringExtra(EXTRA_RULE_PACK_ID) ?: "zfsoft"
+        val pack = com.saltfish.simple.schedule.RulePackStore.get(this, packId)
+            ?: com.saltfish.simple.schedule.ParseRulePack.Zfsoft
         val options = SchedulePdfParser.ParseOptions(
-            bandCount = intent.getIntExtra(EXTRA_BAND_COUNT, 4),
+            bandCount = i.getIntExtra(EXTRA_BAND_COUNT, 4),
             // 行高约 36px（2x 渲染），接缝处需 ≥2 行重叠才能保证整行完整进入某一 band
-            bandOverlap = intent.getIntExtra(EXTRA_BAND_OVERLAP, 80),
-            renderScale = intent.getFloatExtra(EXTRA_RENDER_SCALE, 2f),
+            bandOverlap = i.getIntExtra(EXTRA_BAND_OVERLAP, 80),
+            renderScale = i.getFloatExtra(EXTRA_RENDER_SCALE, 2f),
         )
         startForegroundCompat("正在解析课表…")
         scope.launch {
             val result = runCatching {
-                if (ScheduleXlsParser.isXlsLike(path)) {
-                    // 班级课表 Excel：结构化文本直接解析
-                    ScheduleXlsParser.parse(File(path))
-                } else {
-                    SchedulePdfParser(this@ScheduleParseService, options).parse(File(path))
+                when {
+                    // 课表截图：占用识别 + 逐块内容 OCR（与文件导入同一规则包/确认流程）
+                    isImage -> ImageScheduleParser(this@ScheduleParseService).parse(File(path), pack)
+                    ScheduleXlsParser.isXlsLike(path) ->
+                        // 班级课表 Excel：结构化文本直接解析
+                        ScheduleXlsParser.parse(File(path))
+                    else -> SchedulePdfParser(this@ScheduleParseService, options).parse(File(path), pack)
                 }
             }
             // 建议课表名兜底：Excel 表头缺省时从来源文件名提取（"张三(2026-2027-1)课表" → "张三的课表"）
             val json = result.fold(
                 { parsed ->
+                    android.util.Log.i(
+                        "ScheduleParse",
+                        "解析成功 source=${if (isImage) "image" else "file"} " +
+                            "courses=${parsed.courses.size} entries=${parsed.entries.size}"
+                    )
                     val fallback = parsed.suggestedName.ifBlank { nameFromSource(sourceName) }
                     parsed.copy(suggestedName = fallback).toJson()
                 },
-                { t -> "{\"error\": ${org.json.JSONObject.quote(t.message ?: "解析失败")}}" }
+                { t ->
+                    android.util.Log.w("ScheduleParse", "解析失败 source=$path", t)
+                    "{\"error\": ${org.json.JSONObject.quote(t.message ?: "解析失败")}}"
+                }
             )
             File(filesDir, RESULT_FILE).writeText(json)
             // 必须指定包名：Android 13+ 隐式广播无法送达 RECEIVER_NOT_EXPORTED 的运行时接收器
@@ -128,6 +148,8 @@ class ScheduleParseService : Service() {
         private const val CHANNEL_ID = "schedule_parse"
         private const val NOTIF_ID = 1001
         const val EXTRA_PDF_PATH = "pdf_path"
+        const val EXTRA_IMAGE_PATH = "image_path"
+        const val EXTRA_RULE_PACK_ID = "rule_pack_id"
         const val EXTRA_SOURCE_NAME = "source_name"
         const val EXTRA_BAND_COUNT = "band_count"
         const val EXTRA_BAND_OVERLAP = "band_overlap"
@@ -135,9 +157,19 @@ class ScheduleParseService : Service() {
         const val RESULT_FILE = "result.json"
         const val ACTION_PARSE_DONE = "com.saltfish.simple.PARSE_DONE"
 
-        fun start(context: Context, pdfPath: String, sourceName: String = "") {
+        /** 课表截图识别入口（与文件导入共用解析完成广播与导入确认流程）。 */
+        fun startImage(context: Context, imagePath: String, rulePackId: String, sourceName: String = "") {
+            val intent = Intent(context, ScheduleParseService::class.java)
+                .putExtra(EXTRA_IMAGE_PATH, imagePath)
+                .putExtra(EXTRA_RULE_PACK_ID, rulePackId)
+                .putExtra(EXTRA_SOURCE_NAME, sourceName)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun start(context: Context, pdfPath: String, rulePackId: String, sourceName: String = "") {
             val intent = Intent(context, ScheduleParseService::class.java)
                 .putExtra(EXTRA_PDF_PATH, pdfPath)
+                .putExtra(EXTRA_RULE_PACK_ID, rulePackId)
                 .putExtra(EXTRA_SOURCE_NAME, sourceName)
             ContextCompat.startForegroundService(context, intent)
         }
@@ -148,12 +180,14 @@ class ScheduleParseService : Service() {
             bandCount: Int,
             bandOverlap: Int,
             renderScale: Float,
+            rulePackId: String = "zfsoft",
         ) {
             val intent = Intent(context, ScheduleParseService::class.java)
                 .putExtra(EXTRA_PDF_PATH, pdfPath)
                 .putExtra(EXTRA_BAND_COUNT, bandCount)
                 .putExtra(EXTRA_BAND_OVERLAP, bandOverlap)
                 .putExtra(EXTRA_RENDER_SCALE, renderScale)
+                .putExtra(EXTRA_RULE_PACK_ID, rulePackId)
             ContextCompat.startForegroundService(context, intent)
         }
     }

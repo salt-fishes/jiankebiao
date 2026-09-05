@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -137,11 +138,16 @@ private fun WeeksRow(weeks: Int, onChange: (Int) -> Unit) {
 @Composable
 fun NewTimetableDialog(
     timetables: List<TimetableInfo>,
-    onConfirm: (name: String, copyFromId: Long?) -> Unit,
+    packs: List<com.saltfish.simple.schedule.RulePackStore.Entry>,
+    defaultFilePackId: String,
+    defaultImagePackId: String,
+    onConfirm: (name: String, copyFromId: Long?, packId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by rememberSaveable { mutableStateOf("") }
-    var copyFrom by rememberSaveable { mutableStateOf(0L) }   // 0 = 导入文件
+    // 0 = 导入文件；-1 = 截图识别；>0 = 复制现有课表 id
+    var copyFrom by rememberSaveable { mutableStateOf(0L) }
+    var packId by rememberSaveable { mutableStateOf(defaultFilePackId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -170,6 +176,11 @@ fun NewTimetableDialog(
                         onClick = { copyFrom = 0L },
                         label = { Text("导入文件") },
                     )
+                    FilterChip(
+                        selected = copyFrom == -1L,
+                        onClick = { copyFrom = -1L },
+                        label = { Text("截图识别") },
+                    )
                     timetables.forEach { info ->
                         FilterChip(
                             selected = copyFrom == info.timetable.id,
@@ -178,19 +189,122 @@ fun NewTimetableDialog(
                         )
                     }
                 }
+                // 解析规则包：格式因教务系统/来源而异，由用户手动选定（不自动猜）
+                if (copyFrom <= 0L) {
+                    Spacer(Modifier.padding(top = 10.dp))
+                    Text("解析规则包", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.padding(top = 4.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        packs.forEach { entry ->
+                            FilterChip(
+                                selected = packId == entry.pack.id,
+                                onClick = { packId = entry.pack.id },
+                                label = { Text(entry.pack.name, maxLines = 1) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.padding(top = 4.dp))
+                    Text(
+                        if (copyFrom == 0L) "PDF 课表按导出系统选择；识别不对时换一个规则包重试"
+                        else "网页/截图课表通常选「图标行式」；纯文字网格表选「通用兜底」",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                LaunchedEffect(copyFrom) {
+                    if (copyFrom <= 0L) {
+                        packId = if (copyFrom == -1L) defaultImagePackId else defaultFilePackId
+                    }
+                }
                 Spacer(Modifier.padding(top = 4.dp))
                 Text(
-                    if (copyFrom == 0L) "选择文件后自动解析导入，可在导入时命名"
-                    else "复制该课表全部课程（周次重置为整学期），之后可修改",
+                    when {
+                        copyFrom == 0L -> "选择文件后自动解析导入，可在导入时命名"
+                        copyFrom == -1L -> "选择课表截图，自动识别课程块与内容（识别结果需逐条核对）"
+                        else -> "复制该课表全部课程（周次重置为整学期），之后可修改"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(name.trim(), copyFrom.takeIf { it != 0L }) }) {
-                Text(if (copyFrom == 0L) "选择文件" else "创建")
+            TextButton(onClick = {
+                onConfirm(name.trim(), copyFrom.takeIf { it != 0L }, packId)
+            }) {
+                Text(
+                    when {
+                        copyFrom == 0L -> "选择文件"
+                        copyFrom == -1L -> "选择截图"
+                        else -> "创建"
+                    }
+                )
             }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/**
+ * 解析规则包选择弹窗：「我的页导入」「课表页空状态导入」「系统分享导入」没有
+ * 新建课表弹窗，统一在选文件后、解析前让用户显式选定规则包（不自动猜）。
+ * [forImage] 区分截图识别的提示文案；[fileName] 非空时展示来源文件名。
+ */
+@Composable
+fun RulePackChooseDialog(
+    packs: List<com.saltfish.simple.schedule.RulePackStore.Entry>,
+    initialPackId: String,
+    forImage: Boolean,
+    fileName: String = "",
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var packId by rememberSaveable { mutableStateOf(initialPackId) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择解析规则包") },
+        text = {
+            Column {
+                if (fileName.isNotBlank()) {
+                    Text(
+                        fileName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.padding(top = 8.dp))
+                }
+                // 横向滑动：导入的规则包多时不被挤出屏幕
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    packs.forEach { entry ->
+                        FilterChip(
+                            selected = packId == entry.pack.id,
+                            onClick = { packId = entry.pack.id },
+                            label = { Text(entry.pack.name, maxLines = 1) },
+                        )
+                    }
+                }
+                Spacer(Modifier.padding(top = 4.dp))
+                Text(
+                    if (forImage) "网页/截图课表通常选「图标行式」；纯文字网格表选「通用兜底」"
+                    else "PDF 课表按导出系统选择；识别不对时换一个规则包重试",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(packId) }) { Text("继续") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
@@ -495,7 +609,7 @@ fun TimetableManagePage(
 }
 
 /** 桌面小组件实例信息。 */
-data class WidgetInstanceInfo(val widgetId: Int, val compact: Boolean)
+data class WidgetInstanceInfo(val widgetId: Int, val compact: Boolean, val sizeLabel: String)
 
 /** 小组件绑定设置页：每个桌面实例选择展示哪张课表。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -555,7 +669,7 @@ fun WidgetBindPage(
                     Column(Modifier.weight(1f)) {
                         Text("小组件 #${w.widgetId}", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            if (w.compact) "2×2 紧凑" else "3×2 标准",
+                            w.sizeLabel,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

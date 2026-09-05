@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "zfsoft",
+  "name": "正方教务系统",
+  "version": 1,
+  "match": {
+    "anyOf": [
+      "校区:",
+      "楼号:",
+      "教学班",
+      "选课备注",
+      "时间段"
+    ],
+    "minHits": 2
+  },
+  "table": {
+    "headerAnchor": "时间段",
+    "dayPattern": "星期",
+    "dayCount": 7,
+    "labelWords": [
+      "上午",
+      "下午",
+      "晚上",
+      "时间段",
+      "节次"
+    ],
+    "legendWords": [
+      "打印时间",
+      "其他课程",
+      "图例",
+      "集中实践"
+    ]
+  },
+  "blockStart": {
+    "typeMarks": {
+      "★": "讲课",
+      "○": "实验",
+      "●": "上机",
+      "◇": "实践",
+      ":": "集中实践"
+    },
+    "markAliases": {
+      "〇": "○",
+      "О": "○",
+      "O": "○",
+      "0": "○"
+    },
+    "trailingZeroFallback": true
+  },
+  "fields": {
+    "keyMap": {
+      "教学班组成": "composition",
+      "教学班": "classNo",
+      "校区": "campus",
+      "楼号": "building",
+      "场地": "room",
+      "教师": "teacher",
+      "学分": "credit"
+    },
+    "fieldSeparators": ":：·・",
+    "fieldEndChars": "/",
+    "linePrefixes": {},
+    "sectionsPattern": "\\((\\d+)-(\\d+)节\\)",
+    "weeksPattern": "(\\d+\\s*-\\s*\\d+|\\d+)\\s*周",
+    "paritySingle": "单",
+    "parityDouble": "双",
+    "positionalTeacher": false
+  }
+}

@@ -190,10 +190,9 @@ class SettingsRepository private constructor(context: Context) {
     fun setRemindEnabled(value: Boolean) =
         prefs.edit().putBoolean(KEY_REMIND_ENABLED, value).apply()
 
-    /** 课前提醒提前分钟数（限定可选档位）。 */
+    /** 课前提醒提前分钟数（限定可选档位；0 = 准点）。 */
     fun setRemindMinutesBefore(minutes: Int) {
-        val allowed = setOf(5, 10, 15, 20)
-        val v = if (minutes in allowed) minutes else REMIND_MINUTES_DEFAULT
+        val v = if (minutes in REMIND_MINUTES_CHOICES) minutes else REMIND_MINUTES_DEFAULT
         prefs.edit().putInt(KEY_REMIND_MINUTES, v).apply()
     }
 
@@ -246,7 +245,7 @@ class SettingsRepository private constructor(context: Context) {
             sectionTimes = times,
             remindEnabled = prefs.getBoolean(KEY_REMIND_ENABLED, false),
             remindMinutesBefore = prefs.getInt(KEY_REMIND_MINUTES, REMIND_MINUTES_DEFAULT)
-                .let { if (it in setOf(5, 10, 15, 20)) it else REMIND_MINUTES_DEFAULT },
+                .let { if (it in REMIND_MINUTES_CHOICES) it else REMIND_MINUTES_DEFAULT },
             // 磨砂玻璃默认开启（正式化）：新装/老用户首次读取默认 true，关掉后记住用户选择
             customBgEnabled = prefs.getBoolean(KEY_CUSTOM_BG_ENABLED, true),
             customBgPath = prefs.getString(KEY_CUSTOM_BG_PATH, "") ?: "",
@@ -273,6 +272,9 @@ class SettingsRepository private constructor(context: Context) {
 
         /** 课前提醒默认提前分钟数。 */
         const val REMIND_MINUTES_DEFAULT = 10
+
+        /** 提前量可选档位（0 = 准点提醒）。 */
+        val REMIND_MINUTES_CHOICES = setOf(0, 5, 10, 15, 20, 30, 45, 60)
 
         /** 自定义背景默认模糊强度（dp）。 */
         const val CUSTOM_BG_BLUR_DEFAULT = 20

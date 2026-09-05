@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 暗色玻璃：暗色 tint 加深（壁纸可能为亮图，scrim 保可读）+ 白描边 + 顶部高光 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="18dp" />
+            <solid android:color="#B3201F26" />
+            <stroke android:width="1dp" android:color="#3DFFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="18dp" />
+            <gradient
+                android:angle="270"
+                android:startColor="#1FFFFFFF"
+                android:centerColor="#00FFFFFF"
+                android:endColor="#00FFFFFF" />
+        </shape>
+    </item>
+</layer-list>

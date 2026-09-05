@@ -86,6 +86,7 @@ import com.saltfish.simple.reminder.AppRefresh
 import com.saltfish.simple.schedule.ParsedSchedule
 import com.saltfish.simple.ui.mine.MineScreen
 import com.saltfish.simple.ui.timetable.NewTimetableDialog
+import com.saltfish.simple.ui.timetable.RulePackChooseDialog
 import com.saltfish.simple.ui.timetable.ImportChooseDialog
 import com.saltfish.simple.ui.timetable.ImportTarget
 import com.saltfish.simple.ui.timetable.TimetableInfo
@@ -102,6 +103,7 @@ import com.saltfish.simple.ui.compare.OccupancyDetection
 import com.saltfish.simple.ui.compare.OccupancyReviewScreen
 import com.saltfish.simple.schedule.OccupancyParser
 import com.saltfish.simple.widget.ScheduleWidgetCompactProvider
+import com.saltfish.simple.widget.ScheduleWidgetMediumProvider
 import com.saltfish.simple.widget.ScheduleWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -177,6 +179,15 @@ private fun detectImportExt(head: ByteArray): String? {
     var editingEntry by remember { mutableStateOf<EntryWithCourse?>(null) }
     var showAddCourse by rememberSaveable { mutableStateOf(false) }
     var showSectionTimes by rememberSaveable { mutableStateOf(false) }
+    // 上次手动选定的解析规则包（新建弹窗写入；分享导入等无选择界面的流程复用）
+    var lastFilePackId by rememberSaveable { mutableStateOf("zfsoft") }
+    var lastImagePackId by rememberSaveable { mutableStateOf("icon-grid") }
+    // 直接导入（我的页/课表页空状态/系统分享）没有新建课表弹窗：解析前弹规则包选择
+    var showPackChoose by rememberSaveable { mutableStateOf(false) }
+    var packChooseForImage by rememberSaveable { mutableStateOf(false) }
+    var pendingShareImport by remember { mutableStateOf<Pair<File, String>?>(null) }
+    var showReminders by rememberSaveable { mutableStateOf(false) }
+    var showRulePacks by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
     var showTimetableManage by rememberSaveable { mutableStateOf(false) }
@@ -194,6 +205,26 @@ private fun detectImportExt(head: ByteArray): String? {
         }
     }
 
+    var rulePackRefresh by remember { mutableStateOf(0) }
+    val rulePackPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    val text = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)!!.bufferedReader().readText()
+                    }
+                    com.saltfish.simple.schedule.RulePackStore.import(context, text)
+                }
+                result.onSuccess { pack ->
+                    rulePackRefresh++
+                    showSnackbar("已导入规则包：${pack.name}")
+                }.onFailure { e ->
+                    showSnackbar("导入失败：${e.message ?: "不是有效的规则包文件"}")
+                }
+            }
+        }
+    }
+
     // ---- 设置动作 ----
     val setSemesterStart: (java.time.LocalDate) -> Unit = { date ->
         scope.launch {
@@ -203,10 +234,10 @@ private fun detectImportExt(head: ByteArray): String? {
         }
     }
 
-    fun startParse(pdfPath: String, sourceName: String = "") {
+    fun startParse(pdfPath: String, sourceName: String = "", packId: String = lastFilePackId) {
         parsing = true
         parseError = null
-        ScheduleParseService.start(context, pdfPath, sourceName)
+        ScheduleParseService.start(context, pdfPath, packId, sourceName)
     }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -248,6 +279,36 @@ private fun detectImportExt(head: ByteArray): String? {
         }
     }
 
+    // ---- 截图识别导入（系统照片选择器；复制到缓存后走解析服务图片分支） ----
+    val importImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        val importFile = File(
+                            context.cacheDir,
+                            "import_${System.currentTimeMillis()}.png"
+                        )
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            importFile.outputStream().use { out -> input.copyTo(out) }
+                        } ?: throw IllegalStateException("无法读取图片")
+                        importFile
+                    }
+                }.onSuccess { importFile ->
+                    tab = 0
+                    parsing = true
+                    parseError = null
+                    ScheduleParseService.startImage(context, importFile.absolutePath, lastImagePackId)
+                }.onFailure { e ->
+                    parsing = false
+                    showSnackbar("导入失败：${e.message ?: "无法读取图片"}")
+                }
+            }
+        }
+    }
+
     // ---- 系统分享/「用其他应用打开」导入：魔数嗅探类型，与文件选择器共用解析管道 ----
     LaunchedEffect(importUris) {
         importUris.collect { uri ->
@@ -284,7 +345,10 @@ private fun detectImportExt(head: ByteArray): String? {
             }
             result.onSuccess { (importFile, sourceName) ->
                 tab = 0  // 跳到课表页：解析进度与导入确认弹窗都在可见位置
-                startParse(importFile.absolutePath, sourceName)
+                // 文件已就绪：先选规则包再解析（与手动导入同一确认流程）
+                pendingShareImport = importFile to sourceName
+                packChooseForImage = false
+                showPackChoose = true
             }.onFailure { e ->
                 showSnackbar("导入失败：${e.message ?: "不支持的文件类型"}")
             }
@@ -489,10 +553,19 @@ private fun detectImportExt(head: ByteArray): String? {
     LaunchedEffect(Unit) {
         val activity = context as? android.app.Activity
         val intentPdf = activity?.intent?.getStringExtra(ScheduleParseService.EXTRA_PDF_PATH)
+        val intentImage = activity?.intent?.getStringExtra(ScheduleParseService.EXTRA_IMAGE_PATH)
+        val intentPack = activity?.intent?.getStringExtra(ScheduleParseService.EXTRA_RULE_PACK_ID)
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             settingsRepo.ensureActiveTimetableReady()
         }
-        if (intentPdf != null) startParse(intentPdf)
+        if (intentPdf != null) {
+            startParse(intentPdf, packId = intentPack ?: lastFilePackId)
+        } else if (intentImage != null) {
+            // adb 联调截图识别：走与界面导入相同的图片解析分支
+            parsing = true
+            parseError = null
+            ScheduleParseService.startImage(context, intentImage, intentPack ?: lastImagePackId)
+        }
         // 应用更新/覆盖安装会清掉 AlarmManager 闹钟：每次启动重排一次课前提醒；
         // 同时强刷一次小组件（防升级后残留旧渲染数据）
         kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -533,10 +606,38 @@ private fun detectImportExt(head: ByteArray): String? {
     var showNewTimetableDialog by rememberSaveable { mutableStateOf(false) }
     var autoCreatedTimetableId by rememberSaveable { mutableStateOf(0L) }
     var pendingAutoName by rememberSaveable { mutableStateOf("") }
-    val confirmNewTimetable: (String, Long?) -> Unit = { name, copyFrom ->
+    val confirmNewTimetable: (String, Long?, String) -> Unit = { name, copyFrom, packId ->
         showNewTimetableDialog = false
         showTimetableManage = false
-        if (copyFrom != null) {
+        lastFilePackId = packId
+        lastImagePackId = packId
+        if (copyFrom == -1L) {
+            // 截图识别：自动建表 → 选截图 → 占用+内容识别 → 导入确认弹窗内命名
+            scope.launch {
+                val id = runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        scheduleRepo.createTimetable(
+                            name.ifBlank { "未命名" },
+                            settings.semesterStart,
+                            settings.totalWeeks,
+                        )
+                    }
+                }.getOrNull()
+                if (id != null) {
+                    pendingAutoName = name
+                    autoCreatedTimetableId = id
+                    settingsRepo.setActiveTimetable(id)
+                    AppRefresh.onDataChanged(context)
+                    importImagePicker.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
+                } else {
+                    showSnackbar("创建失败")
+                }
+            }
+        } else if (copyFrom != null) {
             // 复制现有课表：结构原样复制，周次重置整学期
             scope.launch {
                 val result = runCatching {
@@ -651,12 +752,14 @@ private fun detectImportExt(head: ByteArray): String? {
     }
 
     // ---- 系统手势/按键返回：覆盖页显示时返回先关闭覆盖页，回到原界面原位置 ----
-    val overlayShown = showSectionTimes || showAbout || showPrivacy ||
+    val overlayShown = showSectionTimes || showReminders || showRulePacks || showAbout || showPrivacy ||
         showTimetableManage || showWidgetBind || showCompare
     androidx.activity.compose.BackHandler(enabled = overlayShown) {
         when {
             pendingOccupancy != null -> pendingOccupancy = null
             showSectionTimes -> showSectionTimes = false
+            showReminders -> showReminders = false
+            showRulePacks -> showRulePacks = false
             showTimetableManage -> showTimetableManage = false
             showWidgetBind -> showWidgetBind = false
             showCompare -> showCompare = false
@@ -872,7 +975,10 @@ private fun detectImportExt(head: ByteArray): String? {
                     glass = glassOn,
                     onCourseClick = { selectedEntry = it },
                     onShowSnackbar = showSnackbar,
-                    onImportClick = { filePicker.launch(IMPORT_MIMES) },
+                    onImportClick = {
+                        packChooseForImage = false
+                        showPackChoose = true
+                    },
                     onAddClick = { showAddCourse = true },
                     onMoveEntry = { entry, day, start, end ->
                         scope.launch {
@@ -913,7 +1019,10 @@ private fun detectImportExt(head: ByteArray): String? {
                     entryCount = entries.size,
                     parsing = parsing,
                     parseError = parseError,
-                    onPickPdf = { filePicker.launch(IMPORT_MIMES) },
+                    onPickPdf = {
+                        packChooseForImage = false
+                        showPackChoose = true
+                    },
                     onSetSemesterStart = setSemesterStart,
                     onSetTotalWeeks = {
                         scope.launch {
@@ -930,19 +1039,8 @@ private fun detectImportExt(head: ByteArray): String? {
                     onSetDynamicColor = { settingsRepo.setDynamicColor(it) },
                     onSetDarkMode = { settingsRepo.setDarkMode(it) },
                     onOpenSectionTimes = { showSectionTimes = true },
-                    onSetRemindEnabled = {
-                        settingsRepo.setRemindEnabled(it)
-                        AppRefresh.onDataChanged(context)
-                    },
-                    onSetRemindMinutes = {
-                        settingsRepo.setRemindMinutesBefore(it)
-                        AppRefresh.onDataChanged(context)
-                    },
-                    onSendTestReminder = {
-                        scope.launch {
-                            com.saltfish.simple.reminder.ClassReminderScheduler.fireTest(context)
-                        }
-                    },
+                    onOpenReminders = { showReminders = true },
+                    onOpenRulePacks = { showRulePacks = true },
                     onSetCustomBgEnabled = { settingsRepo.setCustomBgEnabled(it) },
                     onPickBackground = {
                         bgPicker.launch(
@@ -1089,12 +1187,63 @@ private fun detectImportExt(head: ByteArray): String? {
 
     // ---- 新建课表弹窗 / 导入选择弹窗 ----
     if (showNewTimetableDialog) {
+        val packEntries = remember(showNewTimetableDialog) {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    com.saltfish.simple.schedule.RulePackStore.listAll(context)
+                }
+            }
+        }
         NewTimetableDialog(
             timetables = timetableInfos,
+            packs = packEntries,
+            defaultFilePackId = lastFilePackId,
+            defaultImagePackId = lastImagePackId,
             onConfirm = confirmNewTimetable,
             onDismiss = { showNewTimetableDialog = false },
         )
     }
+    // ---- 直接导入的规则包选择（我的页 / 课表页空状态 / 系统分享导入共用） ----
+    if (showPackChoose) {
+        val packEntries = remember(showPackChoose) {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    com.saltfish.simple.schedule.RulePackStore.listAll(context)
+                }
+            }
+        }
+        val share = pendingShareImport
+        RulePackChooseDialog(
+            packs = packEntries,
+            initialPackId = if (packChooseForImage) lastImagePackId else lastFilePackId,
+            forImage = packChooseForImage,
+            fileName = share?.first?.name ?: "",
+            onConfirm = { packId ->
+                showPackChoose = false
+                if (share != null) {
+                    // 系统分享导入：文件已复制到缓存，选完包直接解析
+                    pendingShareImport = null
+                    lastFilePackId = packId
+                    startParse(share.first.absolutePath, share.second, packId)
+                } else if (packChooseForImage) {
+                    lastImagePackId = packId
+                    importImagePicker.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
+                } else {
+                    lastFilePackId = packId
+                    filePicker.launch(IMPORT_MIMES)
+                }
+            },
+            onDismiss = {
+                showPackChoose = false
+                pendingShareImport = null
+            },
+        )
+    }
+
     pendingImport?.let { parsed ->
         val preset = timetableInfos.firstOrNull { it.timetable.id == autoCreatedTimetableId }
         ImportChooseDialog(
@@ -1159,6 +1308,59 @@ private fun detectImportExt(head: ByteArray): String? {
                 }
             },
             onBack = { showSectionTimes = false },
+        )
+    }
+
+    // ---- 课程提醒独立页（权限引导 / 运行诊断 / 提前量 / 测试） ----
+    OverlayPage(showReminders) {
+        com.saltfish.simple.ui.mine.ReminderPage(
+            settings = settings,
+            glass = glassOn,
+            onSetRemindEnabled = {
+                settingsRepo.setRemindEnabled(it)
+                AppRefresh.onDataChanged(context)
+            },
+            onSetRemindMinutes = {
+                settingsRepo.setRemindMinutesBefore(it)
+                AppRefresh.onDataChanged(context)
+            },
+            onTestNow = {
+                scope.launch {
+                    com.saltfish.simple.reminder.ClassReminderScheduler.fireTest(context)
+                }
+            },
+            onTestInOneMinute = {
+                scope.launch {
+                    com.saltfish.simple.reminder.ClassReminderScheduler.fireTestInOneMinute(context)
+                }
+            },
+            onBack = { showReminders = false },
+        )
+    }
+
+    // ---- 解析规则包管理页（内置/导入，PDF 与图片识别共用） ----
+    OverlayPage(showRulePacks) {
+        val rulePackEntries = remember(showRulePacks, rulePackRefresh) {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    com.saltfish.simple.schedule.RulePackStore.listAll(context)
+                }
+            }
+        }
+        com.saltfish.simple.ui.mine.RulePackPage(
+            entries = rulePackEntries,
+            glass = glassOn,
+            onImport = { rulePackPicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+            onDelete = { id ->
+                if (com.saltfish.simple.schedule.RulePackStore.isBuiltin(id)) {
+                    showSnackbar("内置规则包不能删除")
+                } else {
+                    runCatching { com.saltfish.simple.schedule.RulePackStore.remove(context, id) }
+                    rulePackRefresh++
+                    showSnackbar("已删除规则包")
+                }
+            },
+            onBack = { showRulePacks = false },
         )
     }
 
@@ -1371,15 +1573,18 @@ private fun OverlayPage(visible: Boolean, content: @Composable () -> Unit) {
     }
 }
 
-/** 枚举桌面上的简课表小组件实例（3×2 / 2×2）。 */
+/** 枚举桌面上的简课表小组件实例（2×4 / 2×3 / 2×2）。 */
 private fun queryWidgetInstances(context: Context): List<com.saltfish.simple.ui.timetable.WidgetInstanceInfo> {
     val mgr = android.appwidget.AppWidgetManager.getInstance(context)
-    val standard = android.content.ComponentName(context, ScheduleWidgetProvider::class.java)
+    val large = android.content.ComponentName(context, ScheduleWidgetProvider::class.java)
+    val medium = android.content.ComponentName(context, ScheduleWidgetMediumProvider::class.java)
     val compact = android.content.ComponentName(context, ScheduleWidgetCompactProvider::class.java)
-    return mgr.getAppWidgetIds(standard).map {
-        com.saltfish.simple.ui.timetable.WidgetInstanceInfo(it, compact = false)
+    return mgr.getAppWidgetIds(large).map {
+        com.saltfish.simple.ui.timetable.WidgetInstanceInfo(it, compact = false, sizeLabel = "2×4 列表")
+    } + mgr.getAppWidgetIds(medium).map {
+        com.saltfish.simple.ui.timetable.WidgetInstanceInfo(it, compact = false, sizeLabel = "2×3 列表")
     } + mgr.getAppWidgetIds(compact).map {
-        com.saltfish.simple.ui.timetable.WidgetInstanceInfo(it, compact = true)
+        com.saltfish.simple.ui.timetable.WidgetInstanceInfo(it, compact = true, sizeLabel = "2×2 紧凑")
     }
 }
 

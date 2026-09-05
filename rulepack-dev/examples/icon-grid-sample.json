@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "icon-grid",
+  "name": "图标行式课表（Web/强智类）",
+  "version": 1,
+  "match": {
+    "anyOf": [
+      "高等学校教师",
+      "未排地点",
+      "时间段"
+    ],
+    "minHits": 2
+  },
+  "table": {
+    "headerAnchor": "时间段",
+    "dayPattern": "星期",
+    "dayCount": 7,
+    "labelWords": [
+      "上午",
+      "下午",
+      "晚上",
+      "时间段",
+      "节次"
+    ],
+    "legendWords": [
+      "打印时间",
+      "图例"
+    ]
+  },
+  "blockStart": {
+    "typeMarks": {
+      "★": "讲课",
+      "●": "上机",
+      "○": "实验",
+      "◇": "实践"
+    },
+    "markAliases": {
+      "〇": "○"
+    },
+    "trailingZeroFallback": true
+  },
+  "fields": {
+    "keyMap": {},
+    "fieldSeparators": ":：·・",
+    "fieldEndChars": "/",
+    "linePrefixes": {
+      "◎": "sections",
+      "📍": "room",
+      "👤": "teacher",
+      "🏠": "classNo",
+      "@": "room"
+    },
+    "sectionsPattern": "\\((\\d+)-(\\d+)节\\)",
+    "weeksPattern": "(\\d+\\s*-\\s*\\d+|\\d+)\\s*周",
+    "paritySingle": "单",
+    "parityDouble": "双",
+    "positionalTeacher": true
+  }
+}

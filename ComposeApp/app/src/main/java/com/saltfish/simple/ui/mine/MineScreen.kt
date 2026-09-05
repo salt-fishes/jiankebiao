@@ -77,12 +77,11 @@ fun MineScreen(
     onSetDynamicColor: (Boolean) -> Unit,
     onSetDarkMode: (String) -> Unit,
     onOpenSectionTimes: () -> Unit,
+    onOpenReminders: () -> Unit,
+    onOpenRulePacks: () -> Unit = {},
     onOpenTimetableManage: () -> Unit = {},
     onOpenWidgetBind: () -> Unit = {},
     onOpenCompare: () -> Unit = {},
-    onSetRemindEnabled: (Boolean) -> Unit,
-    onSetRemindMinutes: (Int) -> Unit,
-    onSendTestReminder: () -> Unit,
     onSetCustomBgEnabled: (Boolean) -> Unit,
     onPickBackground: () -> Unit,
     onClearBackground: () -> Unit,
@@ -222,9 +221,11 @@ fun MineScreen(
                 CardDivider()
                 ActionRow("课表管理", "多课表切换 / 重命名 / 复制", enabled = !parsing) { onOpenTimetableManage() }
                 CardDivider()
-                ActionRow("桌面小组件", "3×2 与 2×2 分别绑定课表") { onOpenWidgetBind() }
+                ActionRow("桌面小组件", "2×2 / 2×3 / 2×4 三种尺寸，分别绑定课表") { onOpenWidgetBind() }
                 CardDivider()
                 ActionRow("课表对比（实验性）", "勾选多张课表，找共同空闲时间") { onOpenCompare() }
+                CardDivider()
+                ActionRow("解析规则包", "适配不同教务系统的导出与截图格式") { onOpenRulePacks() }
                 CardDivider()
                 ActionRow(
                     "同步到系统日历",
@@ -361,55 +362,20 @@ fun MineScreen(
             }
         }
 
-        // ---- 提醒 ----
+        // ---- 提醒：独立页面（权限引导 / 提前量 / 运行诊断 / 测试） ----
         SectionHeader("提醒")
         GlassCard(glass, Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                SwitchRow("上课前提醒", settings.remindEnabled, onSetRemindEnabled, Modifier.padding(horizontal = 16.dp))
-                AnimatedVisibility(
-                    visible = settings.remindEnabled,
-                    enter = expandVertically(AppMotion.spatial()) + fadeIn(AppMotion.effects()),
-                    exit = shrinkVertically(AppMotion.spatialFast()) + fadeOut(AppMotion.effectsFast()),
-                ) {
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(vertical = 2.dp),
-                        ) {
-                            Text(
-                                "提前",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            listOf(5, 10, 15, 20).forEach { m ->
-                                FilterChip(
-                                    selected = settings.remindMinutesBefore == m,
-                                    onClick = {
-                                        Haptics.tick(context)
-                                        onSetRemindMinutes(m)
-                                    },
-                                    label = { Text("$m 分钟") },
-                                    modifier = Modifier.padding(end = 6.dp),
-                                )
-                            }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "提醒在手机本地触发，重启后自动恢复",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = onSendTestReminder) {
-                                Text("发送测试通知")
-                            }
-                        }
-                    }
-                }
+                ActionRow(
+                    "课程提醒",
+                    if (settings.remindEnabled) {
+                        val ahead = if (settings.remindMinutesBefore == 0) "准点提醒"
+                        else "提前 ${settings.remindMinutesBefore} 分钟"
+                        "已开启 · $ahead · 点击查看权限与诊断"
+                    } else {
+                        "已关闭 · 点击进入设置"
+                    },
+                ) { onOpenReminders() }
             }
         }
 

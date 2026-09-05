@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
-import androidx.core.content.ContextCompat
 import com.saltfish.simple.R
 import kotlinx.coroutines.runBlocking
 
@@ -59,11 +58,12 @@ class ScheduleWidgetService : RemoteViewsService() {
             views.setTextViewText(R.id.item_time_end, r.end)
             views.setTextViewText(R.id.item_name, r.name)
             views.setTextViewText(R.id.item_loc, r.loc)
-            // 已结束：名称与地点用次要色（RemoteViews 兼容做法，不依赖 setAlpha）
-            val nameColor = if (r.past) R.color.widget_text_secondary else R.color.widget_text_primary
-            val locColor = R.color.widget_text_secondary
-            views.setTextColor(R.id.item_name, ContextCompat.getColor(context, nameColor))
-            views.setTextColor(R.id.item_loc, ContextCompat.getColor(context, locColor))
+            // 配色与容器同源（WidgetTheme）；已结束：名称与地点用次要色（不依赖 setAlpha）
+            val theme = WidgetTheme.resolve(context)
+            views.setTextColor(R.id.item_time_start, theme.accent)
+            views.setTextColor(R.id.item_time_end, theme.textSecondary)
+            views.setTextColor(R.id.item_name, if (r.past) theme.textSecondary else theme.textPrimary)
+            views.setTextColor(R.id.item_loc, theme.textSecondary)
             return views
         }
 

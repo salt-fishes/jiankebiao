@@ -33,9 +33,11 @@ import java.time.ZoneId
 object ClassReminderScheduler {
 
     const val ACTION_FIRE = "com.saltfish.simple.action.FIRE_CLASS_REMINDER"
+    const val ACTION_TEST_FIRE = "com.saltfish.simple.action.FIRE_TEST_REMINDER"
     const val CHANNEL_ID = "class_reminder"
 
     private const val REQUEST_CODE = 2001
+    private const val REQUEST_CODE_TEST = 2002
     /** 向前扫描天数上限（覆盖两周课表足够；无候选则不排闹钟）。 */
     private const val HORIZON_DAYS = 28
 
@@ -52,6 +54,7 @@ object ClassReminderScheduler {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         // 先取消旧闹钟再按最新数据/设置重排（同 requestCode 覆盖语义）
         am.cancel(firePendingIntent(context))
+        ReminderDiagnostics.recordReschedule(context)
         if (!SettingsRepository.getInstance(context).current.remindEnabled) return@withContext
         findNext(context)?.let { setAlarm(context, it) }
     }
@@ -187,6 +190,7 @@ object ClassReminderScheduler {
             if (up.entry.teacher.isNotBlank()) append(" · ").append(up.entry.teacher)
         }
         val title = if (test) "测试提醒：${up.entry.courseName}" else "即将上课：${up.entry.courseName}"
+        if (!test) ReminderDiagnostics.recordFired(context)
         postNotification(context, title, body, entryId = up.entry.entryId)
     }
 
@@ -220,6 +224,39 @@ object ClassReminderScheduler {
             Intent(context, ReminderReceiver::class.java).setAction(ACTION_FIRE),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+
+    /**
+     * 一分钟测试：真排一个 60 秒后的闹钟（与正式提醒同一交付链路），
+     * 用于验证「精确闹钟权限 + 厂商省电策略」是否真的放行——
+     * 立即测试只验证通知展示，验证不了闹钟链路。
+     */
+    suspend fun fireTestInOneMinute(context: Context) = withContext(Dispatchers.IO) {
+        ensureChannel(context)
+        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pi = PendingIntent.getBroadcast(
+            context, REQUEST_CODE_TEST,
+            Intent(context, ReminderReceiver::class.java).setAction(ACTION_TEST_FIRE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val triggerAt = System.currentTimeMillis() + 60_000L
+        val canExact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        if (canExact) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        } else {
+            am.setWindow(AlarmManager.RTC_WAKEUP, triggerAt, 30_000L, pi)
+        }
+    }
+
+    /** 一分钟测试闹钟到点：直接发测试通知（不续排、不动正式链）。 */
+    internal fun onTestFired(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            postNotification(
+                context,
+                title = "一分钟测试到达",
+                body = "闹钟链路正常。如果这条迟到了很久，说明系统在延迟交付闹钟（省电策略）。",
+            )
+        }
+    }
 
     internal fun ensureChannel(context: Context) {
         ensureChannel(context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)

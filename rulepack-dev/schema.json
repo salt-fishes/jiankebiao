@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "简课表解析规则包 schema v1",
+  "description": "与应用内 ParseRulePack.SCHEMA_VERSION=1 对应；纯数据，禁止任何可执行逻辑与真实个人信息。",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "match", "table", "blockStart", "fields"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,40}$",
+      "description": "唯一标识；导入后同 id 覆盖。不要与内置 zfsoft / icon-grid / generic 重名。"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "version": { "type": "integer", "minimum": 1, "default": 1 },
+    "match": {
+      "type": "object",
+      "required": ["anyOf"],
+      "additionalProperties": false,
+      "properties": {
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 24,
+          "items": { "type": "string", "minLength": 1, "maxLength": 24 },
+          "description": "指纹子串：解析全文中命中的数量 ≥ minHits 才入围，取命中最高者。"
+        },
+        "minHits": { "type": "integer", "minimum": 0, "maximum": 24, "default": 1 }
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headerAnchor": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "表头行锚词（如「时间段」）；留空则 PDF 网格重建不可用（仅截图识别可用）。"
+        },
+        "dayPattern": { "type": "string", "maxLength": 24, "default": "星期" },
+        "dayCount": { "type": "integer", "minimum": 1, "maximum": 7, "default": 7 },
+        "labelWords": {
+          "type": "array", "maxItems": 24,
+          "items": { "type": "string", "maxLength": 24 },
+          "description": "整行丢弃的标签词（上午/下午/节次…，完全等于词条才丢弃）。"
+        },
+        "legendWords": {
+          "type": "array", "maxItems": 24,
+          "items": { "type": "string", "maxLength": 24 },
+          "description": "页面装饰行特征词（图例/打印时间…，包含即丢弃）。"
+        }
+      }
+    },
+    "blockStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "typeMarks": {
+          "type": "object", "maxProperties": 24,
+          "description": "行尾单字符类型标记 → 课程类型（★→讲课…）。截图单卡场景可为空对象。",
+          "additionalProperties": { "type": "string", "maxLength": 24 }
+        },
+        "markAliases": {
+          "type": "object", "maxProperties": 24,
+          "description": "OCR 误识别标记 → 标准标记（〇→○…）。",
+          "additionalProperties": { "type": "string", "maxLength": 24 }
+        },
+        "trailingZeroFallback": {
+          "type": "boolean", "default": true,
+          "description": "行尾 '0' 兜底（○ 被 OCR 成 0），仅当去 0 后含 CJK 才生效。"
+        }
+      }
+    },
+    "fields": {
+      "type": "object",
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "keyMap": {
+          "type": "object", "maxProperties": 24,
+          "description": "键值式字段：属性 key → 语义字段（白名单见下）。",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["campus", "building", "room", "teacher", "classNo", "composition", "credit", "sections"]
+          }
+        },
+        "fieldSeparators": {
+          "type": "string", "minLength": 1, "maxLength": 8,
+          "description": "key 后允许的分隔字符集合（含 OCR 变体），默认 \"[:：·・]\" 形态的字符表。"
+        },
+        "fieldEndChars": {
+          "type": "string", "minLength": 1, "maxLength": 8,
+          "description": "值终止字符集合，默认 \"/\"。"
+        },
+        "linePrefixes": {
+          "type": "object", "maxProperties": 24,
+          "description": "行前缀式字段：行首前缀 → 语义字段；sections 前缀行内同时提取节次+周次。",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["campus", "building", "room", "teacher", "classNo", "composition", "credit", "sections"]
+          }
+        },
+        "sectionsPattern": {
+          "type": "string", "maxLength": 200,
+          "default": "\\((\\d+)-(\\d+)节\\)",
+          "description": "节次提取正则，必须含两个捕获组（起、止）。"
+        },
+        "weeksPattern": {
+          "type": "string", "maxLength": 200,
+          "default": "(\\d+\\s*-\\s*\\d+|\\d+)\\s*周",
+          "description": "周次片段正则，第一个捕获组为 \"N-M\" 或 \"N\"。"
+        },
+        "paritySingle": { "type": "string", "maxLength": 24, "default": "单" },
+        "parityDouble": { "type": "string", "maxLength": 24, "default": "双" },
+        "positionalTeacher": {
+          "type": "boolean", "default": false,
+          "description": "无前缀命中且键值未取到教师时，取末个短中文行按教师兜底（截图课程卡形态）。"
+        }
+      }
+    }
+  }
+}

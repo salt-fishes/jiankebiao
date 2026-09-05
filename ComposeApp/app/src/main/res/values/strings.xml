@@ -5,4 +5,5 @@
     <string name="widget_no_class">今日无课</string>
     <string name="widget_description">今日课程一览</string>
     <string name="widget_description_compact">今日课程速览</string>
+    <string name="widget_description_medium">今日课程列表</string>
 </resources>

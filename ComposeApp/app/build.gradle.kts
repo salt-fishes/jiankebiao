@@ -33,8 +33,7 @@ android {
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {
             abiFilters += listOf("arm64-v8a")
-        }
-    }
+        }    }
 
     if (hasSigning) {
         signingConfigs {
@@ -49,6 +48,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 与正式版共存（不覆盖用户数据），供 adb 驱动解析联调：run-as 可读私有日志
+            applicationIdSuffix = ".debug"
+            // 模拟器联调：x86_64 镜像可安装运行（依赖库 onnxruntime/opencv 自带 x86_64）
+            ndk {
+                abiFilters += listOf("x86_64")
+            }
+        }
         release {
             isMinifyEnabled = false
             if (hasSigning) {

@@ -24,6 +24,8 @@ import java.time.LocalTime
 
 /**
  * 今日课程小组件：标题（第 N 周 · 日期）+ 今日课程列表（RemoteViews 列表）。
+ * 尺寸家族：本类为 2×4 列表型（2×3 由 Medium 子类共用同布局）；
+ * 配色按应用内深色模式与「磨砂玻璃风格」设置四变体切换（WidgetTheme）。
  * 遵循「显示周末」开关：隐藏周末时，周六/日显示空态；数据变化后由 AppRefresh 触发刷新，
  * 系统兜底每 30 分钟周期刷新（跨天/跨周）。
  */
@@ -86,7 +88,7 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
         internal fun resolveActiveTimetableId(context: Context): Long =
             SettingsRepository.getInstance(context).activeTimetableId
 
-        /** 数据变化后的主动刷新入口（更新 3×2 与 2×2 的所有实例，并剪除失效绑定）。 */
+        /** 数据变化后的主动刷新入口（更新 2×4 / 2×3 / 2×2 的所有实例，并剪除失效绑定）。 */
         fun requestUpdate(context: Context) {
             val appContext = context.applicationContext
             val mgr = AppWidgetManager.getInstance(appContext)
@@ -94,6 +96,10 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
             val targets = listOf(
                 Triple(
                     ComponentName(appContext, ScheduleWidgetProvider::class.java),
+                    R.layout.widget_schedule, false,
+                ),
+                Triple(
+                    ComponentName(appContext, ScheduleWidgetMediumProvider::class.java),
                     R.layout.widget_schedule, false,
                 ),
                 Triple(
@@ -197,6 +203,14 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
             val timetableName = AppDatabase.getInstance(context).scheduleDao()
                 .getTimetable(timetableId)?.name ?: "课表"
             val views = RemoteViews(context.packageName, layoutRes)
+
+            // 配色：按应用内深色模式/玻璃设置选变体（背景资源 + 程序化文字色）
+            val theme = WidgetTheme.resolve(context)
+            views.setInt(R.id.widget_root, "setBackgroundResource", theme.backgroundRes)
+            views.setTextColor(R.id.widget_title, theme.textPrimary)
+            views.setTextColor(R.id.widget_subtitle, theme.textSecondary)
+            views.setTextColor(R.id.widget_count, theme.accent)
+            views.setTextColor(R.id.widget_empty, theme.textSecondary)
 
             // 点击整块打开应用
             val pi = PendingIntent.getActivity(

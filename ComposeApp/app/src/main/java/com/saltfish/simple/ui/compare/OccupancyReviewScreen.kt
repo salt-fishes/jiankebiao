@@ -68,25 +68,30 @@ fun OccupancyReviewScreen(
     val bitmap = remember { BitmapFactory.decodeFile(detection.imagePath) }
     var name by rememberSaveable { mutableStateOf("") }
     val grid = detection.grid
-    // 占用集合：key = day * 100 + section
+    // 校正网格固定 7 天 × 12 节（对比语义与数据库课表对齐），识别结果只做预填
     var occupied by remember {
         mutableStateOf(
             grid.blocks
                 .flatMap { b -> ((b.day * 100L + b.startSection)..(b.day * 100L + b.endSection)).asSequence() }
+                .filter { it / 100L in 1..7 && it % 100L in 1..12 }
                 .toSet()
         )
     }
+    // 已覆盖天数：勾选未覆盖的天会自动扩展（截图没拍到但用户勾了 = 该天纳入对比）
+    var coveredDays by remember { mutableStateOf(grid.dayCount.coerceIn(1, 7)) }
 
     fun toggle(day: Int, section: Int) {
         val key = day * 100L + section
         occupied = if (key in occupied) occupied - key else occupied + key
+        if (day > coveredDays) coveredDays = day
         Haptics.tick(context)
     }
 
+    // 背景必须不透明：校正界面叠在对比页之上，透明会透出下层内容
     Column(
         Modifier
             .fillMaxSize()
-            .background(if (glass) Color.Transparent else MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surface)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
@@ -120,11 +125,12 @@ fun OccupancyReviewScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // 校正网格
+        // 校正网格：固定 周一~周日 × 1~12 节
+        val displaySections = 12
         Row {
             Column(Modifier.width(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(22.dp))
-                repeat(grid.sectionCount) { row ->
+                repeat(displaySections) { row ->
                     Box(Modifier.height(30.dp), contentAlignment = Alignment.Center) {
                         Text(
                             "${row + 1}",
@@ -141,33 +147,30 @@ fun OccupancyReviewScreen(
                             Text(
                                 DAY_LABELS[d],
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (d < grid.dayCount) MaterialTheme.colorScheme.primary
+                                color = if (d < coveredDays) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.outlineVariant,
                             )
                         }
                     }
                 }
-                repeat(grid.sectionCount) { row ->
+                repeat(displaySections) { row ->
                     Row {
                         repeat(7) { day ->
-                            val editable = day < grid.dayCount
-                            val on = editable && (day + 1) * 100L + (row + 1) in occupied
+                            val covered = day < coveredDays
+                            val on = (day + 1) * 100L + (row + 1) in occupied
                             Box(
                                 Modifier
                                     .padding(1.dp)
                                     .size(width = 42.dp, height = 30.dp)
                                     .background(
                                         when {
-                                            !editable -> MaterialTheme.colorScheme.surfaceContainerLowest
                                             on -> MaterialTheme.colorScheme.primaryContainer
-                                            else -> MaterialTheme.colorScheme.surfaceContainerLow
+                                            covered -> MaterialTheme.colorScheme.surfaceContainerLow
+                                            else -> MaterialTheme.colorScheme.surfaceContainerLowest
                                         },
                                         RoundedCornerShape(4.dp),
                                     )
-                                    .then(
-                                        if (editable) Modifier.clickable { toggle(day + 1, row + 1) }
-                                        else Modifier
-                                    ),
+                                    .clickable { toggle(day + 1, row + 1) },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (on) {
@@ -187,7 +190,7 @@ fun OccupancyReviewScreen(
         Spacer(Modifier.height(8.dp))
         if (grid.dayCount < 7) {
             Text(
-                "截图中仅显示 ${grid.dayCount} 天，其余日期不计入对比。",
+                "截图识别到 ${grid.dayCount} 天；表头变淡的天未入镜，勾选后会自动纳入对比。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -214,7 +217,7 @@ fun OccupancyReviewScreen(
                             endSection = (key % 100L).toInt(),
                         )
                     }
-                    onSave(name.ifBlank { "对比课表" }, grid.dayCount, blocks)
+                    onSave(name.ifBlank { "对比课表" }, coveredDays, blocks)
                 },
             ) { Text("保存") }
         }

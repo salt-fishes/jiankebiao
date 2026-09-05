@@ -68,7 +68,7 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 今日课程桌面小组件（3×2） -->
+        <!-- 今日课程桌面小组件（2×4 列表） -->
         <receiver
             android:name=".widget.ScheduleWidgetProvider"
             android:exported="false">
@@ -77,7 +77,19 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/schedule_widget_info" />
+                android:resource="@xml/schedule_widget_info_2x4" />
+        </receiver>
+
+        <!-- 今日课程桌面小组件（2×3 列表） -->
+        <receiver
+            android:name=".widget.ScheduleWidgetMediumProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_widget_info_2x3" />
         </receiver>
 
         <!-- 今日课程桌面小组件（2×2 紧凑） -->
