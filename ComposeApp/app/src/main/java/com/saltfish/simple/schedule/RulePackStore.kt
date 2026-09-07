@@ -45,6 +45,11 @@ object RulePackStore {
 
     fun isBuiltin(id: String): Boolean = ParseRulePack.Builtins.any { it.id == id }
 
+    /** 截图类规则包（声明 screenshot）：文件导入路由据此走照片选择器。 */
+    fun isScreenshotPack(context: Context, id: String): Boolean =
+        ParseRulePack.Builtins.firstOrNull { it.id == id }?.screenshot == true ||
+            listAll(context).firstOrNull { it.pack.id == id }?.pack?.screenshot == true
+
     /** 按 id 取规则包（内置 + 导入）；找不到返回 null（调用方决定兜底）。 */
     fun get(context: Context, id: String): ParseRulePack? =
         listAll(context).firstOrNull { it.pack.id == id }?.pack

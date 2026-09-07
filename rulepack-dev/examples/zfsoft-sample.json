@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "zfsoft",
-  "name": "正方教务系统",
+  "id": "zfsoft-sample",
+  "name": "正方教务系统（示例）",
   "version": 1,
   "match": {
     "anyOf": [

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "icon-grid",
-  "name": "图标行式课表（Web/强智类）",
+  "id": "icon-grid-sample",
+  "name": "图标行式课表（Web/强智类）（示例）",
   "version": 1,
   "match": {
     "anyOf": [

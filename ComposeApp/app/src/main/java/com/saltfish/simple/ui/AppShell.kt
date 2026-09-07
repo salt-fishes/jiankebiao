@@ -674,7 +674,16 @@ private fun detectImportExt(head: ByteArray): String? {
                     autoCreatedTimetableId = id
                     settingsRepo.setActiveTimetable(id)
                     AppRefresh.onDataChanged(context)
-                    filePicker.launch(IMPORT_MIMES)
+                    if (com.saltfish.simple.schedule.RulePackStore.isScreenshotPack(context, packId)) {
+                        // 截图类规则包（网页大图/课程卡等）：文件入口从图片查看器（相册）选图
+                        importImagePicker.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    } else {
+                        filePicker.launch(IMPORT_MIMES)
+                    }
                 } else {
                     showSnackbar("创建失败")
                 }
@@ -1225,7 +1234,10 @@ private fun detectImportExt(head: ByteArray): String? {
                     pendingShareImport = null
                     lastFilePackId = packId
                     startParse(share.first.absolutePath, share.second, packId)
-                } else if (packChooseForImage) {
+                } else if (packChooseForImage ||
+                    com.saltfish.simple.schedule.RulePackStore.isScreenshotPack(context, packId)
+                ) {
+                    // 截图入口 / 选中截图类规则包：从图片查看器（相册）选图
                     lastImagePackId = packId
                     importImagePicker.launch(
                         androidx.activity.result.PickVisualMediaRequest(

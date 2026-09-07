@@ -66,15 +66,19 @@ class ImageScheduleParser(
                 )
             }
 
-            // 2. 规则包由用户在导入弹窗显式指定，逐格解析字段
+            // 2. 规则包由用户在导入弹窗显式指定，逐格解析字段（命中轨迹落盘诊断）
             val courses = mutableListOf<ParsedCourse>()
             val entries = mutableListOf<ParsedEntry>()
             val seenCourse = mutableMapOf<Triple<String, String, String>, Int>()
             val seenEntry = mutableSetOf<String>()
             val defaultWeeks = (1..totalWeeks.coerceIn(1, 30)).toList()
+            val traceLog = StringBuilder()
 
             for (cell in cells) {
-                for (c in ScheduleParser.parseCell(cell.text, pack)) {
+                val (cellCourses, cellTrace) = ScheduleParser.parseCellTraced(cell.text, pack)
+                cellTrace.blocks.forEach { traceLog.appendLine("[day ${cell.day}] ${it.render()}") }
+                cellTrace.unmatchedLines.forEach { traceLog.appendLine("[day ${cell.day}] 未入块: $it") }
+                for (c in cellCourses) {
                     val normName = c.name.replace(" ", "").replace("　", "")
                         .replace("（", "(").replace("）", ")")
                     if (normName.isBlank() || normName.length == 1) continue
@@ -113,6 +117,12 @@ class ImageScheduleParser(
             }
             check(entries.isNotEmpty()) {
                 "识别到课程块但未解析出课程内容，请确认截图为课程表（而非对比占用图）"
+            }
+            // 规则命中轨迹追加到调试文件（规则包作者据此定位缺失规则）
+            if (traceLog.isNotEmpty()) {
+                runCatching {
+                    File(context.filesDir, "ocr_debug_image.txt").appendText("\n---- 规则命中轨迹 ----\n$traceLog")
+                }
             }
 
             // 同名课程合并非空字段（与 PDF 解析一致的兜底）

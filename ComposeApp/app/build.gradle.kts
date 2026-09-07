@@ -27,8 +27,8 @@ android {
         applicationId = "com.saltfish.simple"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "2.1"
+        versionCode = 12
+        versionName = "2.2"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {
@@ -120,4 +120,6 @@ dependencies {
 
     // 单元测试（ScheduleXlsParser 班级课表 Excel 解析等）
     testImplementation("junit:junit:4.13.2")
+    // org.json 的 JVM 实现：本地单测跑 ParseRulePack.fromJson（android.jar 桩是 not mocked）
+    testImplementation("org.json:json:20240303")
 }

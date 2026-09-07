@@ -104,6 +104,7 @@ object OccupancyParser {
         val sp: Double,
         val axisRight: Double,
         val sectionLabels: List<Int>,
+        val debug: String = "",
     )
 
     private class HeaderResult(
@@ -151,6 +152,20 @@ object OccupancyParser {
                 )
             }
             check(blocks.isNotEmpty()) { "未能从图片中识别出课程块，请确认截图包含完整课表" }
+            // 结构诊断落盘：行列边界丢了哪一行/列，从这里直接可见
+            runCatching {
+                java.io.File(context.filesDir, "occupancy_debug.txt").appendText(
+                    "\n---- 结构诊断 ----\n" +
+                        "axis.rowCenters=${axis.rowCenters.map { it.roundToInt() }}\n" +
+                        "axis.sectionLabels=${axis.sectionLabels}\n" +
+                        "axis.sp=${axis.sp.roundToInt()} axisRight=${axis.axisRight.roundToInt()}\n" +
+                        "header.colCenters=${header.colCenters.map { it.roundToInt() }}\n" +
+                        "header.dayOfColumn=${header.dayOfColumn.toList()}\n" +
+                        "tableTopY=$tableTopY axisEdge=$axisEdge coloredFrac=$coloredFrac\n" +
+                        "axis.debug=\${axis.debug}\n" +
+                        "blocks=${blocks.map { "d${it.day}:${it.startSection}-${it.endSection}" }}\n",
+                )
+            }
             val sectionCount = min(15, max(blocks.maxOf { it.endSection }, axis.sectionLabels.maxOrNull() ?: 1))
             return Grid(
                 dayCount = header.dayOfColumn.maxOrNull() ?: header.colCenters.size,
@@ -325,7 +340,13 @@ object OccupancyParser {
                 axisRight = max(axisRight, c.x1.toDouble())
             }
         }
-        return AxisResult(grid, sp, axisRight, sectionLabels)
+        val debug = "texts=%d clusters=%d narrow=%d narrowCy=%s digitAnchors=%s marks=%s".format(
+            texts.size, clusters.size, narrow.size,
+            narrow.take(14).map { "%.0f(w%.0f,x0=%.0f)".format(it.cy, it.w, it.x0) },
+            digitAnchors.map { "${it.num}@%.0f".format(it.y) },
+            marks.entries.sortedBy { it.key },
+        )
+        return AxisResult(grid, sp, axisRight, sectionLabels, debug)
     }
 
     // ------------------------------------------------------------------

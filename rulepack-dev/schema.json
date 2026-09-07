@@ -1,19 +1,24 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "简课表解析规则包 schema v1",
-  "description": "与应用内 ParseRulePack.SCHEMA_VERSION=1 对应；纯数据，禁止任何可执行逻辑与真实个人信息。",
+  "title": "简课表解析规则包 schema v2",
+  "description": "与应用内 ParseRulePack.SCHEMA_VERSION_MAX=2 对应；纯数据，禁止任何可执行逻辑与真实个人信息。v1 包仍可导入（typeMarks/markAliases/keyMap/linePrefixes/positionalTeacher/positionalRoom 作糖编译展开），v2 包内不再接受这些旧字段。",
   "type": "object",
-  "required": ["schemaVersion", "id", "name", "match", "table", "blockStart", "fields"],
+  "required": ["schemaVersion", "id", "name", "match", "table", "blockStart"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9._-]{1,40}$",
-      "description": "唯一标识；导入后同 id 覆盖。不要与内置 zfsoft / icon-grid / generic 重名。"
+      "description": "唯一标识；导入后同 id 覆盖。不得与内置 zfsoft / icon-grid / app-cards / qz / generic 重名。"
     },
     "name": { "type": "string", "minLength": 1, "maxLength": 40 },
     "version": { "type": "integer", "minimum": 1, "default": 1 },
+    "screenshot": {
+      "type": "boolean",
+      "default": false,
+      "description": "截图类规则包：解析手机截图（照片选择器导入）。导出文件（PDF/Excel）类不写或为 false。"
+    },
     "match": {
       "type": "object",
       "required": ["anyOf"],
@@ -34,8 +39,7 @@
       "additionalProperties": false,
       "properties": {
         "headerAnchor": {
-          "type": "string",
-          "maxLength": 24,
+          "type": "string", "maxLength": 24,
           "description": "表头行锚词（如「时间段」）；留空则 PDF 网格重建不可用（仅截图识别可用）。"
         },
         "dayPattern": { "type": "string", "maxLength": 24, "default": "星期" },
@@ -43,80 +47,105 @@
         "labelWords": {
           "type": "array", "maxItems": 24,
           "items": { "type": "string", "maxLength": 24 },
-          "description": "整行丢弃的标签词（上午/下午/节次…，完全等于词条才丢弃）。"
+          "description": "整行丢弃的标签词（上午/下午/节次…完全等于词条才丢弃）。"
         },
         "legendWords": {
           "type": "array", "maxItems": 24,
           "items": { "type": "string", "maxLength": 24 },
-          "description": "页面装饰行特征词（图例/打印时间…，包含即丢弃）。"
+          "description": "页面装饰行特征词（图例/打印时间/备注…包含即丢弃）。"
         }
       }
     },
     "blockStart": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["courseStart"],
       "properties": {
-        "typeMarks": {
-          "type": "object", "maxProperties": 24,
-          "description": "行尾单字符类型标记 → 课程类型（★→讲课…）。截图单卡场景可为空对象。",
-          "additionalProperties": { "type": "string", "maxLength": 24 }
-        },
-        "markAliases": {
-          "type": "object", "maxProperties": 24,
-          "description": "OCR 误识别标记 → 标准标记（〇→○…）。",
-          "additionalProperties": { "type": "string", "maxLength": 24 }
-        },
-        "trailingZeroFallback": {
-          "type": "boolean", "default": true,
-          "description": "行尾 '0' 兜底（○ 被 OCR 成 0），仅当去 0 后含 CJK 才生效。"
+        "courseStart": {
+          "type": "array",
+          "minItems": 1, "maxItems": 24,
+          "description": "有序块起始规则：第一条在行内命中的规则生效；命中行中标记之后的剩余文本按续行处理。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["pattern"],
+            "properties": {
+              "pattern": { "type": "string", "maxLength": 200 },
+              "name": { "type": "string", "maxLength": 24, "description": "诊断显示名" },
+              "nameGroup": { "type": "integer", "minimum": 1, "default": 1 },
+              "type": { "type": "string", "maxLength": 24, "description": "固定课程类型" },
+              "typeGroup": {
+                "type": "integer", "minimum": 0, "default": 0,
+                "description": "类型映射捕获组：按该组文本查 typeMap 得类型"
+              },
+              "typeMap": {
+                "type": "object", "maxProperties": 24,
+                "additionalProperties": { "type": "string", "maxLength": 24 },
+                "description": "捕获文本 → 课程类型（如 {\"理论\":\"讲课\"}）"
+              }
+            }
+          }
         }
       }
     },
     "fields": {
       "type": "object",
-      "required": [],
       "additionalProperties": false,
       "properties": {
+        "fieldRules": {
+          "type": "array", "maxItems": 24,
+          "description": "有序字段规则：按序执行，字段先到先得。无 linePrefix 且无 line=正文拼接查找；linePrefix=行首前缀路由；line=\"first\"/\"last\"=逐行扫描。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field"],
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": ["campus", "building", "room", "teacher", "classNo", "composition", "credit", "sections"],
+                "description": "sections 特殊：linePrefix 行内同时提取节次+周次"
+              },
+              "name": { "type": "string", "maxLength": 24 },
+              "pattern": { "type": "string", "maxLength": 200 },
+              "captureGroup": { "type": "integer", "minimum": 1, "default": 1 },
+              "linePrefix": { "type": "string", "maxLength": 24 },
+              "line": { "type": "string", "enum": ["first", "last"] },
+              "stripTrailingParen": { "type": "boolean", "default": false },
+              "splitCampus": { "type": "boolean", "default": false, "description": "按空格拆 campus/room（首段须 ≤5 字纯 CJK）" },
+              "cleanTeacher": { "type": "boolean", "default": false, "description": "从首个职称括注起截断" },
+              "excludeChars": { "type": "string", "maxLength": 24, "description": "候选行含这些字符则跳过" }
+            }
+          }
+        },
         "keyMap": {
           "type": "object", "maxProperties": 24,
-          "description": "键值式字段：属性 key → 语义字段（白名单见下）。",
+          "description": "语法糖（编译为正文规则）：键值式 key → 语义字段",
           "additionalProperties": {
             "type": "string",
             "enum": ["campus", "building", "room", "teacher", "classNo", "composition", "credit", "sections"]
           }
-        },
-        "fieldSeparators": {
-          "type": "string", "minLength": 1, "maxLength": 8,
-          "description": "key 后允许的分隔字符集合（含 OCR 变体），默认 \"[:：·・]\" 形态的字符表。"
-        },
-        "fieldEndChars": {
-          "type": "string", "minLength": 1, "maxLength": 8,
-          "description": "值终止字符集合，默认 \"/\"。"
         },
         "linePrefixes": {
           "type": "object", "maxProperties": 24,
-          "description": "行前缀式字段：行首前缀 → 语义字段；sections 前缀行内同时提取节次+周次。",
+          "description": "语法糖（编译为行前缀规则）：前缀 → 语义字段",
           "additionalProperties": {
             "type": "string",
             "enum": ["campus", "building", "room", "teacher", "classNo", "composition", "credit", "sections"]
           }
         },
+        "fieldSeparators": { "type": "string", "minLength": 1, "maxLength": 8 },
+        "fieldEndChars": { "type": "string", "minLength": 1, "maxLength": 8 },
         "sectionsPattern": {
           "type": "string", "maxLength": 200,
           "default": "\\((\\d+)-(\\d+)节\\)",
-          "description": "节次提取正则，必须含两个捕获组（起、止）。"
+          "description": "节次提取正则（两个捕获组：起、止）；留空 = 卡面无节次（占用网格回填）"
         },
         "weeksPattern": {
           "type": "string", "maxLength": 200,
-          "default": "(\\d+\\s*-\\s*\\d+|\\d+)\\s*周",
-          "description": "周次片段正则，第一个捕获组为 \"N-M\" 或 \"N\"。"
+          "description": "周次片段正则（第一捕获组为完整片段，含「周」与可选单双尾注）"
         },
         "paritySingle": { "type": "string", "maxLength": 24, "default": "单" },
-        "parityDouble": { "type": "string", "maxLength": 24, "default": "双" },
-        "positionalTeacher": {
-          "type": "boolean", "default": false,
-          "description": "无前缀命中且键值未取到教师时，取末个短中文行按教师兜底（截图课程卡形态）。"
-        }
+        "parityDouble": { "type": "string", "maxLength": 24, "default": "双" }
       }
     }
   }

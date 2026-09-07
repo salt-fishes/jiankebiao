@@ -58,6 +58,11 @@ import com.saltfish.simple.ui.theme.AppMotion
 
 /** 更新记录数据：新版本在前。 */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "2.2" to listOf(
+        "课表解析重构：格线网格分块，修复连堂与同格多课的节次错位",
+        "支持多页 PDF；正方 / 强智教务导出均可导入",
+        "新增解析规则包：可导入 JSON 规则包适配新教务格式",
+    ),
     "2.1" to listOf(
         "包名迁移 com.saltfish.simple 后的首个功能版本",
         "修复顶部标题「第 N 周」竖排堆叠的布局错误",
