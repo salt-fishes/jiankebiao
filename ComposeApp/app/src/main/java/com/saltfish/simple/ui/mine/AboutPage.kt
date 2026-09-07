@@ -124,6 +124,15 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
     ),
 )
 
+/** 更新记录按大版本系列分组（1.x / 2.x），保持新系列在前。 */
+private val CHANGELOG_SERIES: List<Pair<String, List<Pair<String, List<String>>>>> = run {
+    val bySeries = LinkedHashMap<String, MutableList<Pair<String, List<String>>>>()
+    CHANGELOG.forEach { (v, items) ->
+        bySeries.getOrPut("${v.substringBefore('.')}.x") { mutableListOf() }.add(v to items)
+    }
+    bySeries.map { it.key to it.value }
+}
+
 /** 关于页：应用介绍 / 主要功能 / 更新记录（点击展开）/ 开发者信息。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -216,17 +225,17 @@ fun AboutPage(
 
             Spacer(Modifier.height(24.dp))
 
-            // ---- 更新记录：收纳折叠，点击展开；当前版本默认展开 ----
+            // ---- 更新记录：按 1.x / 2.x 系列分组，默认全部收起，点击逐级展开 ----
             SectionTitle("更新记录")
-            var expanded by rememberSaveable {
-                mutableStateOf(setOf(CHANGELOG.first().first))
-            }
-            CHANGELOG.forEachIndexed { index, (version, items) ->
-                val isExpanded = version in expanded
-                val rotation by animateFloatAsState(
-                    targetValue = if (isExpanded) 180f else 0f,
+            val currentVersion = CHANGELOG.first().first
+            var expandedSeries by rememberSaveable { mutableStateOf(setOf<String>()) }
+            var expandedVersions by rememberSaveable { mutableStateOf(setOf<String>()) }
+            CHANGELOG_SERIES.forEachIndexed { si, (series, entries) ->
+                val seriesOpen = series in expandedSeries
+                val seriesRotation by animateFloatAsState(
+                    targetValue = if (seriesOpen) 180f else 0f,
                     animationSpec = AppMotion.spatialFast(),
-                    label = "changelogChevron$index",
+                    label = "seriesChevron$si",
                 )
                 GlassCard(glass, Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -235,43 +244,93 @@ fun AboutPage(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    expanded = if (isExpanded) expanded - version else expanded + version
+                                    expandedSeries =
+                                        if (seriesOpen) expandedSeries - series
+                                        else expandedSeries + series
                                 }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 10.dp),
                         ) {
                             Text(
-                                "v$version",
+                                "v$series 系列",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                if (index == 0) "当前版本 · ${items.size} 项更新" else "${items.size} 项更新",
+                                "最新 v${entries.first().first} · ${entries.size} 个版本",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (index == 0) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                             )
                             Icon(
                                 Icons.Filled.KeyboardArrowDown,
-                                contentDescription = if (isExpanded) "收起" else "展开",
+                                contentDescription = if (seriesOpen) "收起系列" else "展开系列",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.graphicsLayer { rotationZ = rotation },
+                                modifier = Modifier.graphicsLayer { rotationZ = seriesRotation },
                             )
                         }
                         AnimatedVisibility(
-                            visible = isExpanded,
+                            visible = seriesOpen,
                             enter = expandVertically(AppMotion.spatial()) + fadeIn(AppMotion.effects()),
                             exit = shrinkVertically(AppMotion.spatialFast()) + fadeOut(AppMotion.effectsFast()),
                         ) {
-                            Column(Modifier.padding(bottom = 8.dp)) {
-                                items.forEach { line ->
-                                    Text(
-                                        "• $line",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(vertical = 2.dp),
+                            Column(Modifier.padding(bottom = 6.dp)) {
+                                entries.forEachIndexed { index, (version, items) ->
+                                    val isExpanded = version in expandedVersions
+                                    val versionRotation by animateFloatAsState(
+                                        targetValue = if (isExpanded) 180f else 0f,
+                                        animationSpec = AppMotion.spatialFast(),
+                                        label = "changelogChevron$si$index",
                                     )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                expandedVersions =
+                                                    if (isExpanded) expandedVersions - version
+                                                    else expandedVersions + version
+                                            }
+                                            .padding(vertical = 8.dp),
+                                    ) {
+                                        Text(
+                                            "v$version",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            if (version == currentVersion) "当前版本 · ${items.size} 项更新"
+                                            else "${items.size} 项更新",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (version == currentVersion)
+                                                MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Icon(
+                                            Icons.Filled.KeyboardArrowDown,
+                                            contentDescription = if (isExpanded) "收起" else "展开",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.graphicsLayer { rotationZ = versionRotation },
+                                        )
+                                    }
+                                    AnimatedVisibility(
+                                        visible = isExpanded,
+                                        enter = expandVertically(AppMotion.spatial()) + fadeIn(AppMotion.effects()),
+                                        exit = shrinkVertically(AppMotion.spatialFast()) + fadeOut(AppMotion.effectsFast()),
+                                    ) {
+                                        Column(Modifier.padding(bottom = 8.dp)) {
+                                            items.forEach { line ->
+                                                Text(
+                                                    "• $line",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(vertical = 2.dp),
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
