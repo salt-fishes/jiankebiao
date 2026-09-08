@@ -17,6 +17,9 @@
 > 已落地为路由数据）。rulepack-dev 工作台 v2 已就绪（schema/模拟器/知识库/示例）。
 > 待做：M3.5 安全加固（导入大小上限、ReDoS 对抗探测）、detectAxis 顶部锚修复、
 > 正方网页截图占用轴缺陷修复（18/28 → 全对）。
+> **v2.2.1**：修复同格多段课程只保留一段的问题——OCR 偶发吞掉课名尾部类型标记
+> （"物理实验A○"→"物理实验A"），粘行/吞标记两类块起始场景以粘连行规则 +
+> 无标记课名前瞻（下一行节次开头且拼接不构成块起始才切分）补齐，59 用例全绿。
 > 评估依据见 `RULEPACK_V2_ASSESSMENT.md`。
 > 关联代码：`ComposeApp/app/src/main/java/com/saltfish/simple/schedule/`、`rulepack-dev/`
 

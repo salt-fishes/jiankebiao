@@ -27,8 +27,8 @@ android {
         applicationId = "com.saltfish.simple"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.2"
+        versionCode = 13
+        versionName = "2.2.1"
 
         // 仅保留 arm64-v8a（真机为麒麟 arm64 芯片）
         ndk {

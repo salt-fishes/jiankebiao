@@ -31,7 +31,22 @@ object ScheduleParser {
         val unmatched = mutableListOf<String>()
         val unmatchedIdx = mutableListOf<Int>()
         for ((i, line) in lines.withIndex()) {
+            var forceStart = false
             var start = compiled.matchCourseStart(line)
+            if (start == null) {
+                // 无标记课名前瞻：OCR 偶发吞掉课名尾部的类型标记
+                // （"物理实验A○"→"物理实验A"，真机实测导致整段课粘进上一格消失）。
+                // 纯课名形状行（中文开头、无字段分隔符/标记）+ 下一行以节次"(N"开头
+                // + 与下一行拼接不构成块起始（那是标题断行拼回场景，让位）→ 新块起始
+                val nextLine = lines.getOrNull(i + 1) ?: ""
+                val joinWithNextMatches =
+                    (blocks.lastOrNull()?.lastOrNull() + nextLine).let { compiled.matchCourseStart(it) } != null ||
+                        (unmatched.lastOrNull() + nextLine).let { compiled.matchCourseStart(it) } != null
+                if (!joinWithNextMatches && nextLine.startsWith("(") &&
+                    line.length in 2..16 && line[0].code in 0x4E00..0x9FFF &&
+                    line.none { it in "/：:（(）)【】★○●◇〇 " }
+                ) forceStart = true
+            }
             if (start == null && blocks.isNotEmpty()) {
                 // OCR 盒子拆行修复：课名与类型标记被拆成两行（"电工电子技术基础B" +
                 // "(理论) 教师【周次】"）时，与块内上一行拼回再测块起始；
@@ -78,11 +93,11 @@ object ScheduleParser {
                     continue
                 }
             }
-            if (start != null) {
+            if (start != null || forceStart) {
                 blocks.add(mutableListOf(line))
                 blockIdx.add(mutableListOf(i))
                 // 宽松规则命中粘连行：标题行剩余部分（教师/周次等）按续行处理
-                if (start.rest.isNotEmpty()) {
+                if (start?.rest?.isNotEmpty() == true) {
                     blocks.last().add(start.rest)
                     blockIdx.last().add(i)
                 }
@@ -187,7 +202,8 @@ object ScheduleParser {
     ): Pair<CellCourse, BlockTrace> {
         val title = block.first()
         val start = compiled.matchCourseStart(title)
-        val name = start?.name ?: ""
+        // forceStart 块（无标记课名前瞻）无规则命中：课名取整行
+        val name = start?.name?.takeIf { it.isNotEmpty() } ?: title
         val type = start?.type ?: ""
         val fills = mutableListOf<String>()
 

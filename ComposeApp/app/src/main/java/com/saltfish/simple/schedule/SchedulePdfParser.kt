@@ -118,8 +118,8 @@ class SchedulePdfParser(
 
                 for ((i, res) in results.withIndex()) {
                     log.appendLine("page $i: ocrLines=${res.size}")
-                    res.take(6).forEach { r ->
-                        log.appendLine("   [${r.box.points.joinToString { "${it.x.toInt()},${it.y.toInt()}" }}] ${r.text.take(30)}")
+                    res.forEach { r ->
+                        log.appendLine("   [${r.box.points.joinToString { "${it.x.toInt()},${it.y.toInt()}" }}] ${r.text.take(40)}")
                     }
                     // 3. 第 0 页提取星期列边界（规则包由用户在导入弹窗显式指定，跨页共用）
                     if (i == 0) {

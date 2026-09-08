@@ -22,6 +22,52 @@ class ScheduleParserTest {
     ).joinToString("\n")
 
     @Test
+    fun `正方粘连行 - 标题与内容同行仍切分新块`() {
+        // 真机实测：OCR 检测框把「课名+标记+部分字段」粘成一行（实测课表周四
+        // 两段物理实验A 只解析出一段）。三行同格文本应切出三门课、周次互不污染。
+        val text = listOf(
+            "概率论与数理统计A★ (1-2节)1-3周,5-17周/校区:下沙/教师:张三",
+            "物理实验AO (6-8节)1-3周,5-10周/校区:下沙/教师:李四",
+            "物理实验AO (6-8节)11-17周/校区:下沙/教师:王五",
+        ).joinToString("\n")
+        val courses = ScheduleParser.parseCell(text, Zfsoft)
+        assertEquals(3, courses.size)
+        assertEquals("概率论与数理统计A", courses[0].name)
+        assertEquals((listOf(1, 2, 3) + (5..17).toList()).sorted(), courses[0].weeks)
+        assertEquals("物理实验A", courses[1].name)
+        assertEquals("实验", courses[1].type)
+        assertEquals(listOf(1, 2, 3, 5, 6, 7, 8, 9, 10), courses[1].weeks)
+        assertEquals("李四", courses[1].teacher)
+        assertEquals("物理实验A", courses[2].name)
+        assertEquals(listOf(11, 12, 13, 14, 15, 16, 17), courses[2].weeks)
+        assertEquals("王五", courses[2].teacher)
+    }
+
+    @Test
+    fun `正方无标记课名 - OCR 吞掉类型标记时仍切分新块`() {
+        // 真机实测（实测课表周四第一段）：OCR 把 "物理实验A○" 识别成 "物理实验A"，
+        // 无标记可依——纯课名形状行（中文开头、无字段分隔符/括号）应作为块起始，
+        // 否则整段课粘进上一格消失。字段行（含 / : ( 键值结构）不得误中。
+        val text = listOf(
+            "数值计算方法★ (3-4节)1-3周,5-9周/校区:下沙/教师:张三",
+            "物理实验A",
+            "(6-8节)1-3周,5-10周/校区:下沙/楼号:无楼号/教师:李四",
+            "物理实验AO (6-8节)11-17周/校区:下沙/教师:王五",
+        ).joinToString("\n")
+        val courses = ScheduleParser.parseCell(text, Zfsoft)
+        assertEquals(3, courses.size)
+        assertEquals("数值计算方法", courses[0].name)
+        assertEquals("物理实验A", courses[1].name)
+        assertEquals(listOf(1, 2, 3, 5, 6, 7, 8, 9, 10), courses[1].weeks)
+        assertEquals(6, courses[1].sections[0])
+        assertEquals(8, courses[1].sections[1])
+        assertEquals("李四", courses[1].teacher)
+        assertEquals("物理实验A", courses[2].name)
+        assertEquals(listOf(11, 12, 13, 14, 15, 16, 17), courses[2].weeks)
+        assertEquals("王五", courses[2].teacher)
+    }
+
+    @Test
     fun `正方键值式完整字段`() {
         val c = ScheduleParser.parseCell(zfCell, Zfsoft).single()
         assertEquals("模拟电子线路", c.name)
